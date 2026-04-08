@@ -1,0 +1,14 @@
+spacy
+pandas
+transformers
+accelerate
+diffusers
+datasets
+tqdm
+scipy
+trimesh
+open3d
+pyyaml  
+ftfy
+regex
+onnxruntime-gpu==1.19.2

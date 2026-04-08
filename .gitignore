@@ -1,0 +1,15 @@
+outputs/
+env
+*.pyc
+__pycache__/
+eval_*.sh
+data_preprocess
+__pycache__
+my_scripts
+**/__pycache__/
+output/
+vis/
+scripts/
+config/debug*.yaml
+tests/
+.pytest_cache/

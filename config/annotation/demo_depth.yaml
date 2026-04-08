@@ -1,0 +1,24 @@
+dataset:
+  modality: image
+  dataset_name: image_base
+  data_dir: /path/to/singleview_processed.parquet
+
+pipeline:
+  file_name: base_pipeline
+  class_name: BasePipeline
+
+  stages:
+    annotation_stage:
+      -
+        file_name: depth_annotation
+        method: AnnotationGenerator
+        scaling_factor: 1
+        filter_tags: ["ceiling", "floor", "wall", "object"]
+        sub_tasks:
+          depth_ordering_oe: 1
+          depth_ordering_mcq: 1
+          depth_choice_oe: 1
+          depth_choice_mcq: 1
+        use_multi_processing: false
+        num_workers: 8
+        output_dir:

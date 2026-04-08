@@ -34,19 +34,18 @@ By bridging the gap between massive 2D web data and complex 3D spatial reasoning
 * **Comprehensive Evaluation**: Built-in benchmarking suite to evaluate spatial understanding capabilities across different model architectures.
 * **High Efficiency**: Optimized for large-scale data processing with scalable distributed computing support.
 
+## 📖 Documentation
+
+| Document | Description |
+|---|---|
+| [Quick Start](assets/quick_start.md) | Data preparation, config structure, annotation pipeline usage, and running tasks end-to-end |
+| [Development Guide](assets/development_guide.md) | Adding new annotation tasks, pipeline stages, prompt templates, dataset preprocessors, and internal architecture reference |
+
 ## 📅 Roadmap & To-Do List
 
 - [ ] **OpenSpatial-3M Dataset Release**: Publicly release the large-scale 3M spatial understanding dataset.
 - [ ] **3D Lifting Module**: Integrate the core engine for lifting 2D web data to 3D representations.
 - [ ] **Evaluation Suite**: Open-source the comprehensive evaluation code for spatial tasks.
+- [ ] **Model Release**: Release the trained spatial understanding model.
+- [ ] **More Tasks**: Extend support for more spatial understanding task types.
 <!-- - [ ] **Multi-modal Support**: Extend support for more sensor modalities. -->
-
-<!-- ## 🛠️ Installation
-
-```bash
-# Clone the repository
-git clone [https://github.com/username/OpenSpatial.git](https://github.com/username/OpenSpatial.git)
-cd OpenSpatial
-
-# Install dependencies
-pip install -r requirements.txt -->

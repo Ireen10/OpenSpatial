@@ -1,0 +1,4 @@
+data_root: ./data
+output_dir: ./output
+workers: 24
+batch_size: 3000

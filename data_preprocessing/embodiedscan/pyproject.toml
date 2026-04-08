@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta:__legacy__"
+
+[project]
+name = "embodiedscan-data"
+version = "0.1.0"
+description = "Unified data pipeline for extracting multi-view 3D perception data from EmbodiedScan datasets"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.8"
+dependencies = [
+    "embodiedscan",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "tqdm",
+    "Pillow",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+hf = ["huggingface_hub"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
