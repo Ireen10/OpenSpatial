@@ -67,7 +67,7 @@
 
 - 内部统一使用 metadata v0 的 Python 对象（或 dict），其字段语义与 `metadata/docs/metadata_spec_v0_zh.md` 对齐。
 - `source/evidence/score` 属于**可选字段**：增强结果“推荐”写入以便追溯，但不是强制要求（允许缺省）。
-- `object_id/query_id` 的生成与稳定性：建议在 schema 内提供统一的内部方法（类方法/静态方法）生成 id，避免散落在 utils 中，风格类似 OpenSpatial 中的 `_format_task_ref(...)`（见 `pipeline/base_pipeline.py`）。
+- `object_id/query_id` 的生成与稳定性：建议在 schema 内提供统一的内部方法（类方法/静态方法）生成 id，避免散落在 utils 中，风格类似 OpenSpatial 中的 `_format_task_ref(...)`（见 `pipeline/base_pipeline.py`）。v0 单视角阶段默认只要求 **sample 内唯一/稳定**，不要求跨数据集全局统一。
 
 #### 2) 导入（Ingest）
 
