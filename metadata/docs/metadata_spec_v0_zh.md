@@ -165,12 +165,13 @@ v0 推荐的落地方式为：
 
 - `anchor_id: str`
 - `target_id: str`
-- `predicate: "left_of"|"right_of"|"above"|"below"`
+- `predicate: "left"|"right"|"above"|"below"`
 - `ref_frame: "image_plane"`
-- `evidence`（建议）
-  - `anchor_point_uv_norm_1000: [int,int]`（由 bbox center 或 mask centroid 得到，坐标落在 `[0,1000)`）
-  - `target_point_uv_norm_1000: [int,int]`
-  - `delta_uv: [du,dv]`
+- `evidence`（建议）：证据字段**不要求键名固定**，但建议至少能表达“用什么方法、基于哪些点/区域、算出了什么差值”。下面仅给出一种参考写法：
+  - `method: str`（例如 `bbox_center` / `mask_centroid` / `point_uv`）
+  - `anchor_point_uv_norm_1000: [int,int]`（可选：由 bbox center 或 mask centroid 得到，坐标落在 `[0,1000)`）
+  - `target_point_uv_norm_1000: [int,int]`（可选）
+  - `delta_uv: [int,int]`（可选：`target - anchor` 的 (du,dv)）
 - `score: float | null`
 - `source: "computed"|"huashan_annotated"|"imported"`
 
@@ -186,28 +187,20 @@ v0 推荐的落地方式为：
 
 #### 4.2.1 原子谓词（可选其一表示方式）
 
-**方式 A：轴符号（推荐，天然支持复合方位）**
-
-- `axis_signs`：以 `right/up/front` 语义表达复合方向
+- `axis_signs`：以 `right/above/front` 语义表达复合方向
   - `right: -1|0|+1`（-1=left, +1=right）
-  - `up: -1|0|+1`（-1=below, +1=above）
+  - `above: -1|0|+1`（-1=below, +1=above）
   - `front: -1|0|+1`（-1=behind, +1=front；按“扶正后深度次序”定义）
 
 并可选存：
-- `components: list[str]`：如 `["left","front","above"]`（从 axis_signs 派生）
-
-**方式 B：显式复合谓词**
-
-- `predicate: "left_front_above" | ...`
-- `components: ["left","front","above"]`
-
-> v0 推荐方式 A：`axis_signs` 让标签空间可控，不会因组合爆炸难以维护。
+- `axis_signs_vec: [int,int,int]`：可选，按 `[right, above, front]` 顺序存储的紧凑向量形式（更利于数值处理；与 `axis_signs` 等价）
+- `delta_r_a_f: [float,float,float] | null`：可选，三个轴上的连续差值（right/above/front），便于设阈值或做难度分层
 
 #### 4.2.2 证据与来源
 
 因为 v0 允许 3D 关系来自人工标注，建议显式记录：
 
- - `source: "huashan_annotated"|"computed"|"imported"`
+- `source: "huashan_annotated"|"computed"|"imported"`
 - `score: float | null`
 - `evidence`（强烈建议）
   - `anchor_point_xyz_cam: [x,y,z] | null`
@@ -238,16 +231,12 @@ metadata 可以按 **raw → enriched** 的方式分阶段演进：
 
 ### 5.1 存储形态
 
-OpenSpatial 当前主路径是 **Parquet 行**。v0 有两种落地方式：
+OpenSpatial 当前主路径是 **Parquet 行**。采用以下方案：在现有 Parquet 中新增 JSON 列（便于借用管线流程，但不强耦合内部列名与 `SceneGraph` 实现）：
 
-- **方式 1（最小侵入）**：在现有 Parquet 中新增 JSON 列：
-  - `objects_json`、`queries_json`、`relations_2d_json`、`relations_3d_json`
-- **方式 2（更可直接用）**：拆成若干列并复用工程既有列名：
-  - `obj_tags` ≈ objects.category
-  - `bboxes_2d` / `masks` / `pointclouds` / `bboxes_3d_world_coords`
-  - 再额外新增：`object_ids`、`queries`、`relations_2d`、`relations_3d`
-
-若短期目标是用现有 annotation 框架快速迭代，建议采用 **方式 2**，因为 `SceneGraph` 已能消费一批标准列。
+- `objects_json`
+- `queries_json`
+- `relations_2d_json`
+- `relations_3d_json`
 
 ### 5.2 2D 与 3D 任务分开跑
 
@@ -265,6 +254,8 @@ OpenSpatial 当前主路径是 **Parquet 行**。v0 有两种落地方式：
   "sample_id": "human_anno/img_000123",
   "view_id": 0,
   "image": "data/images/img_000123.png",
+  "height": 480,
+  "width": 640,
   "image_coord_space": "norm_0_999",
   "image_coord_scale": 1000,
   "objects": [
@@ -288,6 +279,15 @@ OpenSpatial 当前主路径是 **Parquet 行**。v0 有两种落地方式：
       "query_type": "huashan_annotated",
       "candidate_object_ids": ["chair#0"],
       "gold_object_id": "chair#0",
+      "filters": {"contains_spatial_terms": false, "spatial_terms": []}
+    }
+    ,
+    {
+      "query_id": "q1",
+      "query_text": "the dining table",
+      "query_type": "huashan_annotated",
+      "candidate_object_ids": ["table#0"],
+      "gold_object_id": "table#0",
       "filters": {"contains_spatial_terms": false, "spatial_terms": []}
     }
   ],
