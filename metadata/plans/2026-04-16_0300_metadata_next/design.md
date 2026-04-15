@@ -70,7 +70,7 @@
     - **可选 `axis_signs`**：与规范 **§4.2.1** 同一符号思想在 **2D 子集**上表达，**仅**使用键 `right` 与 `above`（不写 `front`），取值 `-1|0|+1`，与 `components` **语义一致、可互相校验**。
   - **`predicate` 与 `components` 的填写约定（本轮）**：  
     - **仅单轴显著**：只填 **`predicate`** 为对应原子，`components` 可省略或单元素（实现二选一但须**自洽且可测**）。  
-    - **双轴均显著（复合）**：**必须**填 **`components`** 为两个原子（顺序约定：**先水平 `left|right`，后垂直 `above|below`**）；**`predicate`** 填 **主原子**（以 `|delta_u|` 与 `|delta_v|` 较大者为准，平局规则见 §4.2），复合语义以 **`components` 为准**。
+    - **双轴均显著（复合）**：**必须**填 **`components`** 为两个原子（顺序约定：**先水平 `left|right`，后垂直 `above|below`**）。**`predicate`** 与 **`components[0]`（水平腿）一致**，仅作与 `RelationV0.predicate` 必填字段的兼容；**复合语义以 `components` 为准**，不再用 `|du|`/`|dv|` 大小选「主谓词」、**不**因两轴幅度接近而丢弃。
   - `source = "computed"`（或规范中的 `"computed"`）
   - `evidence`：至少 `method`（`bbox_center` 或 **`point_uv`**，与物体几何一致）、参与计算的代表点、`delta_uv`（可选）
 - **`aux.enrich_2d`**（建议结构，可调整命名）：
@@ -105,7 +105,7 @@
 - **单原子 vs 复合（已定）**：
   - **仅水平轴显著**（竖直为 tie）：只输出 **`predicate`** ∈ {left, right}（及可选 `components: ["left"]` 等自洽形式）。
   - **仅竖直轴显著**：只输出 **`predicate`** ∈ {above, below}。
-  - **两轴均显著**：输出 **`components: [水平原子, 垂直原子]`**（§3 顺序约定），`predicate` 取 **主原子**（`|delta_u|` 与 `|delta_v|` 较大侧）。若两轴幅度比率落入实现内 **「平局带」**（代码常量，不可配置），**丢弃该有序对**（保守，不降级为单轴）。
+  - **两轴均显著**：输出 **`components: [水平原子, 垂直原子]`**（§3 顺序约定）；**`predicate` = `components[0]`**；不因 `|du|≈|dv|` 丢弃。
 - **对称去重（写死）**：全组合遍历时对无序对 `{A,B}` **只产一条**有向边（例如固定 **字典序较小的 `object_id` 为 anchor**）；单原子与复合均适用。不引入「是否双写」配置项。
 - **重叠度过高或中心过近（写死）**：**不作可配置开关**。若 **两物体 bbox IoU 高于代码内定常量**，**或** **两物体代表点（框中心或点坐标）在归一化平面上的距离低于代码内定常量**，则 **直接丢弃该有序对**（不参与谓词计算）。`aux` 中记录丢弃原因（如 `high_iou`、`near_center`）即可。阈值仅在实现里维护，调参若需暴露再单开一轮设计。
 
@@ -116,7 +116,7 @@
 
 ### 4.4 写死阈值与坐标归一化（`0 … coord_scale`，通常 1000）
 
-**会不会有问题？** — 在仓库已约定 **v0 物体坐标与 `coord_scale`（常见为 1000）同一套归一化空间** 的前提下，**阈值写死在代码里没有尺度矛盾**：距离、面积、`min_abs_delta_*`、近中心阈值、平局带等，全部理解为 **「与该 sample 的 `sample.image.coord_scale` 一致的归一化单位」** 下的常数（开发时常在 `coord_scale=1000` 下标定一组整数/浮点常量）。
+**会不会有问题？** — 在仓库已约定 **v0 物体坐标与 `coord_scale`（常见为 1000）同一套归一化空间** 的前提下，**阈值写死在代码里没有尺度矛盾**：距离、面积、`min_abs_delta_*`、近中心阈值、IoU 等，全部理解为 **「与该 sample 的 `sample.image.coord_scale` 一致的归一化单位」** 下的常数（开发时常在 `coord_scale=1000` 下标定一组整数/浮点常量）。
 
 **仍须注意的两点**（实现时写进模块 docstring 即可）：
 
@@ -154,7 +154,7 @@ attach_aux_enrich_stats(...)
 ## 7. 已定决策摘要（原未决项收口）
 
 1. **多 bbox / NMS**：一框/一点一物体；展开多 `ObjectV0`；**不做 NMS**。
-2. **单轴 vs 复合**：双轴显著 → **`components`**；单轴 → **`predicate`**；**平局带内丢弃该对**（实现常量）。
+2. **单轴 vs 复合**：双轴显著 → **`components`** + **`predicate`=水平腿**；单轴 → **`predicate`**；**无**「平局带丢弃」。
 3. **交付形态**：**首轮仅库 + 单测**（如 `openspatial_metadata.enrich.relation2d`）；**不接新 CLI 子命令**（与 CLI 的串接留待后续若需要再开 plan）。
 4. **与 adapter**：**解耦** — adapter 只做 **→ `MetadataV0`**；enrich 只做 **`MetadataV0` → 补全 `relations` 等**，**不是** adapter 子类、**不**新增 `enrich()` 作为 adapter 接口；管线顺序上可为「adapter 后调用 enrich 函数」。
 5. **框+点混用**：**报错**（adapter 生成阶段；enrich 可防御性再校验）。

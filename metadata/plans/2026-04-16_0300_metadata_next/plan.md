@@ -8,7 +8,7 @@
 
 - **文档**：本目录 `test_plan.md` 与实现同步勾选；`README.md` 指回 design；`metadata/README.md` 增加 **enrich 库入口** 一句（无新 CLI 时可不写 config_yaml）。
 - **代码**：`metadata/src/openspatial_metadata/enrich/`（或等价单模块 `relation2d.py`）— **公开 API** 如 `enrich_relations_2d(metadata: MetadataV0, *, options: ...) -> MetadataV0`（签名以实现为准）；内部分拆 `geometry.py` / `filters.py` 仅当单文件过长。
-- **配置**：物体级过滤等 **首轮以 dataclass + 默认值 + 可选参数** 为主；与 `design.md` §4.2 **写死**项（IoU/近中心/对称向/平局丢弃）为 **模块常量**，且 **按 `sample.image.coord_scale` 与 v0 归一化空间一致换算**（见 `design.md` §4.4）。
+- **配置**：物体级过滤等 **首轮以 dataclass + 默认值 + 可选参数** 为主；与 `design.md` §4.2 **写死**项（IoU/近中心/对称向）为 **模块常量**，且 **按 `sample.image.coord_scale` 与 v0 归一化空间一致换算**（见 `design.md` §4.4）。
 - **样例/fixtures**：`metadata/tests/fixtures/` 下最小 JSON（或手写 `MetadataV0` dict）用于黄金向量与异常路径。
 
 ---
@@ -29,7 +29,7 @@
 ### T1：几何与谓词核心
 
 - **目标**：由两物体代表点 `(du, dv)` 判定单原子 `predicate` 或复合 `components` + 主 `predicate`；**image_plane** 下 `above` ⇔ 更小 `v`（y 向下）写死并加注释。
-- **文件**：`enrich/relation2d.py`（或合并名）、常量模块（IoU 阈值、近中心阈值、平局带比率）。
+- **文件**：`enrich/relation2d.py`（或合并名）、常量模块（IoU 阈值、近中心阈值等）。
 - **完成条件**：`test_plan.md` 中 **UT-G1** 全部通过。
 
 ### T2：物体级过滤 + 代表点
@@ -40,7 +40,7 @@
 
 ### T3：关系对过滤 + 对称向 + 写回 metadata
 
-- **目标**：全组合 → **无序对只保留 anchor `object_id` 字典序较小者 → target**；应用 IoU **或** 近中心写死丢弃；平局带内丢弃；对称对向不在第二层重复；写入 `relations` 与 `source`/`evidence`；填充 `aux.enrich_2d` 统计。
+- **目标**：全组合 → **无序对只保留 anchor `object_id` 字典序较小者 → target**；应用 IoU **或** 近中心写死丢弃；双轴显著则 **始终** 输出复合；写入 `relations` 与 `source`/`evidence`；填充 `aux.enrich_2d` 统计。
 - **文件**：`enrich/relation2d.py` + `schema/metadata_v0.py` **仅当**需辅助方法（否则不动 schema）。
 - **完成条件**：**UT-R1** 通过（**IT-1** 见 `test_plan.md`，有 fixture 后再纳入里程碑）。
 

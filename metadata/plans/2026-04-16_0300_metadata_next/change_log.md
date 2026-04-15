@@ -3,7 +3,7 @@
 ## 变更摘要
 
 - **新增** `openspatial_metadata.enrich`：`enrich_relations_2d`（`MetadataV0` → 深拷贝后写 `relations`）、物体级过滤（`filters.py`）、与 `coord_scale` 成比例的阈值常量（`constants.py`）。
-- **语义**：`delta_uv = target - anchor`；`above` ⇔ 更小 `v`；无序对仅 **anchor `object_id` 字典序较小** 的一条有向边；IoU 过高 **或** 代表点过近丢弃；双轴显著且落入平局比丢弃；**无 NMS**。
+- **语义**：`delta_uv = target - anchor`；`above` ⇔ 更小 `v`；无序对仅 **anchor `object_id` 字典序较小** 的一条有向边；IoU 过高 **或** 代表点过近丢弃；双轴显著 **始终** 输出复合且 **`predicate`=`components[0]`**；**无 NMS**；IoU 阈值较初版 **更严**（`AMBIGUOUS_IOU=0.68`）。
 - **校验**：同一 `ObjectV0` 同时含 bbox 与 point → **`ValueError`**。
 - **测试**：`metadata/tests/test_enrich_relation2d.py`（几何、过滤、IoU/近心、对称、点模式、非变异、scale 缩放）。
 

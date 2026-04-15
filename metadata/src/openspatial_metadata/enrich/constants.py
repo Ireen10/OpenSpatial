@@ -25,22 +25,9 @@ NEAR_CENTER_DIST_REF = 16
 MIN_AREA_ABS_REF = 180
 
 # --- IoU ---
-# Above this, two bboxes overlap so much that left/right/above/below from centers
-# is often misleading → drop the ordered pair (design §4.2).
-AMBIGUOUS_IOU = 0.82
-
-# --- "tie band": magnitude ratio only, NOT part of compass / bearing math ---
-# When BOTH |du| and |dv| are already >= their min_abs thresholds, we *could* emit
-# a composite relation. Design (§4.2) adds a conservative rule: if the two
-# magnitudes are almost equal, the displacement is nearly along a diagonal in
-# uv-space, so picking a single "main" predicate is weak and composite QA can
-# feel arbitrary → **drop the whole pair**.
-#
-#   ratio = min(|du|, |dv|) / max(|du|, |dv|)   # always in [0, 1]
-#   if ratio >= TIE_BAND_MIN_OVER_MAX_REF: discard (do not emit composite).
-#
-# This ratio never decides sign(left/right/above/below); signs come only from du, dv.
-TIE_BAND_MIN_OVER_MAX_REF = 0.88
+# Stricter than early defaults: drop the pair at moderate overlap so centre-based
+# predicates are less often wrong (design §4.2).
+AMBIGUOUS_IOU = 0.68
 
 # --- aspect ratio max (w/h or h/w) for boxes ---
 MAX_ASPECT_RATIO = 24.0

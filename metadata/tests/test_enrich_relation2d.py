@@ -85,13 +85,15 @@ class TestEnrichGeometryPredicates(unittest.TestCase):
         self.assertIsNone(r.components)
         self.assertLess(abs(r.evidence["delta_uv"][1]), 12)
 
-    def test_g1_5_tie_band_discards_pair(self):
+    def test_g1_5_near_equal_deltas_still_emits_composite(self):
+        """Both axes significant and similar magnitude → composite, not dropped."""
         a = _box("a#0", [100, 100, 130, 130])
         b = _box("b#0", [300, 280, 330, 310])
         md = enrich_relations_2d(_meta(a, b))
-        self.assertEqual(len(md.relations), 0)
-        reasons = [x["reason"] for x in md.aux["enrich_2d"]["dropped_relation_candidates"]]
-        self.assertIn("tie_band", reasons)
+        self.assertEqual(len(md.relations), 1)
+        r = md.relations[0]
+        self.assertEqual(len(r.components), 2)
+        self.assertEqual(r.predicate, r.components[0])
 
 
 class TestEnrichObjectFilters(unittest.TestCase):

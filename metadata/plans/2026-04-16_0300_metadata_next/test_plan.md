@@ -6,7 +6,7 @@
 
 ## 测试范围
 
-- **覆盖**：`ref_frame=image_plane` 下单/复合 `predicate` + `components`；物体级过滤；对称向（字典序 anchor）；IoU/近中心写死丢弃；平局带丢弃；`ValueError` 混用框点；`aux.enrich_2d` 基础字段。
+- **覆盖**：`ref_frame=image_plane` 下单/复合 `predicate` + `components`（复合时 `predicate`=水平腿）；物体级过滤；对称向（字典序 anchor）；IoU/近中心写死丢弃；`ValueError` 混用框点；`aux.enrich_2d` 基础字段。
 - **不覆盖**：CLI 子命令、adapter 具体类、3D、NMS、YAML 全局配置（首轮无）。
 
 ---
@@ -19,9 +19,9 @@
 |------|--------------------------|------|
 | G1.1 | target 在 anchor 右侧（du 大、dv tie） | `predicate="right"`，`components` 省略或单元素与实现约定一致 |
 | G1.2 | target 在 anchor 上方（dv 更小） | `predicate="above"` |
-| G1.3 | 右下复合（du>0, dv>0 且两轴均过显著阈值、不在平局带） | `components=["right","below"]`，`predicate` 为主轴较大者 |
+| G1.3 | 右下复合（du>0, dv>0 且两轴均过显著阈值） | `components=["right","below"]`，`predicate`=`components[0]` |
 | G1.4 | 一轴在 `min_abs_delta_*` 以下 | 仅输出另一轴单原子 |
-| G1.5 | 两轴均在显著区但比率落入平局常数 | **无** relation 该对 |
+| G1.5 | 两轴均显著且 \|du\|≈\|dv\| | 仍输出复合，`predicate`=`components[0]` |
 
 - **输入构造**：手写 `MetadataV0`（最小 `dataset`/`sample`/`objects`，两至三个 `ObjectV0`）。
 - **断言点**：`predicate`/`components`/`ref_frame`/`source`/`evidence.delta_uv` 与手算一致。

@@ -103,12 +103,10 @@ def _maybe_relation_for_pair(
     anchor: ObjectV0,
     target: ObjectV0,
     *,
-    scale: int,
     min_du: float,
     min_dv: float,
     near_center: float,
     iou_th: float,
-    tie_ratio: float,
     dropped_candidates: List[Dict[str, Any]],
 ) -> Optional[RelationV0]:
     ab, bb = anchor.bbox_xyxy_norm_1000, target.bbox_xyxy_norm_1000
@@ -141,16 +139,13 @@ def _maybe_relation_for_pair(
     ma, mb = _geom_method(anchor), _geom_method(target)
 
     if h_ok and v_ok:
-        ratio = min(adu, adv) / max(adu, adv) if max(adu, adv) > 0 else 0.0
-        if ratio >= tie_ratio:
-            dropped_candidates.append(
-                {"anchor_id": anchor.object_id, "target_id": target.object_id, "reason": "tie_band"}
-            )
-            return None
         h_atom = "right" if du > 0 else "left"
         v_atom = "above" if dv < 0 else "below"
         components = [h_atom, v_atom]
-        predicate = h_atom if adu >= adv else v_atom
+        # Composite: semantic truth is `components`; `predicate` matches horizontal
+        # leg only so RelationV0.predicate stays a single atomic label without a
+        # bogus "main axis" from |du| vs |dv|.
+        predicate = components[0]
         axis = {"right": 1 if du > 0 else (-1 if du < 0 else 0), "above": 1 if dv < 0 else (-1 if dv > 0 else 0)}
         return _build_relation(
             anchor.object_id,
@@ -234,7 +229,6 @@ def enrich_relations_2d(
     min_du = C.scale_length(float(C.MIN_ABS_DELTA_U_REF), scale)
     min_dv = C.scale_length(float(C.MIN_ABS_DELTA_V_REF), scale)
     near_d = C.scale_length(float(C.NEAR_CENTER_DIST_REF), scale)
-    tie_ratio = C.TIE_BAND_MIN_OVER_MAX_REF
 
     sorted_objs = sorted(kept, key=lambda o: o.object_id)
     new_rels: List[RelationV0] = []
@@ -247,12 +241,10 @@ def enrich_relations_2d(
             rel = _maybe_relation_for_pair(
                 anchor,
                 target,
-                scale=scale,
                 min_du=min_du,
                 min_dv=min_dv,
                 near_center=near_d,
                 iou_th=C.AMBIGUOUS_IOU,
-                tie_ratio=tie_ratio,
                 dropped_candidates=dropped_candidates,
             )
             if rel is not None:
