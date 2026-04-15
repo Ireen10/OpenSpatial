@@ -26,4 +26,4 @@ metadata/tests/.tmp_out/
 metadata/tests/.tmp_demo_out/
 
 # dataset local notes (do not commit)
-metadata/configs/datasets/refcoco_grounding_aug_en_250618/README.md
+metadata/configs/datasets/**/README.md
