@@ -159,13 +159,15 @@ v0 推荐的落地方式为：
 
 ### 4.1 `Relation2D`（image_plane）
 
-**用途**：图像平面内上下左右。
+**用途**：图像平面内 **上下左右** 等原子方位，以及由 **`components`** 表达的 **复合方位**（如左上、右下，见字段 `components`）。
 
 字段建议：
 
 - `anchor_id: str`
 - `target_id: str`
-- `predicate: "left"|"right"|"above"|"below"`
+- `predicate: "left"|"right"|"above"|"below"`（单一主方位时；与 **§2.3**「标签层 predicate / components」一致）
+- `components: list["left"|"right"|"above"|"below"]`（**可选**；当图像平面上同时具备两个原子方位时填写，例如 **左上** → `["left","above"]`，**右下** → `["right","below"]`；列表元素仅使用本节原子标签）
+- `axis_signs`（**可选**，与 §4.2.1 同一套符号思想在 2D 上的子集）：可仅含 `right` 与 `above` 两键，取值为 `-1|0|+1`（`right`: -1=left、+1=right；`above`: -1=below、+1=above）；**不写 `front`**
 - `ref_frame: "image_plane"`
 - `evidence`（建议）：证据字段**不要求键名固定**，但建议至少能表达“用什么方法、基于哪些点/区域、算出了什么差值”。下面仅给出一种参考写法：
   - `method: str`（例如 `bbox_center` / `mask_centroid` / `point_uv`）

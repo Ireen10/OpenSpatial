@@ -9,13 +9,13 @@
 
 ### 1.1 背景
 
-- **已明确**：metadata **输出**侧 v0 结构（`dataset` / `sample` / `image` / `objects` / `relations` 等）及 2D 关系语义（`ref_frame=image_plane` 下的 `left|right|above|below`），见 `metadata/docs/metadata_spec_v0_zh.md`。
+- **已明确**：metadata **输出**侧 v0 结构（`dataset` / `sample` / `image` / `objects` / `relations` 等）及 2D 关系语义（`ref_frame=image_plane`；**原子标签**为 `left|right|above|below`；**复合方位**由 **`components`** 与可选 **`axis_signs`** 表达，见 `metadata/docs/metadata_spec_v0_zh.md` **§2.3**、**§4.1**）。
 - **未明确**：上游 **输入** 可能是多种 JSON/Parquet/检测器导出形态；同一逻辑下物体数量、bbox 尺度、重叠程度变化很大。
 - **本轮范围**：先只做 **2D image_plane 关系增强**，不碰 3D、不强制本轮完成 Parquet 主链路。
 
 ### 1.2 目标（必须可验证）
 
-1. 给定一个 **sample** 语义等价于：**一张图** + **若干物体**；每个物体有 **自然语言描述（或类别）**，且 **仅用框或仅用点之一** 做 2D grounding（**框与点互斥**，见 §2.2）。多目标 grounding 下 **一个 label 可对应多个框或多个点**，但 **每个框或每个点对应恰好一个物体实例**（展开为多条 `Object`）。在此之上 **计算或补全** `relations`（有序对、`predicate` ∈ {left, right, above, below}，`ref_frame="image_plane"`）。
+1. 给定一个 **sample** 语义等价于：**一张图** + **若干物体**；每个物体有 **自然语言描述（或类别）**，且 **仅用框或仅用点之一** 做 2D grounding（**框与点互斥**，见 §2.2）。多目标 grounding 下 **一个 label 可对应多个框或多个点**，但 **每个框或每个点对应恰好一个物体实例**（展开为多条 `Object`）。在此之上 **计算或补全** `relations`（有序对、`ref_frame="image_plane"`）：输出可为 **单原子** `predicate`，或 **复合方位**（如左上、右下）下 **`components`** 含两个原子标签，与规范及 `RelationV0` 一致（见 §3）。
 2. 所有写入的 `relations` 均可追溯：**`source`**（如 `computed`）、**`evidence`**（建议含 `method`、`anchor_point_uv_norm_1000`、`target_point_uv_norm_1000`、`delta_uv` 等与规范 §4.1 一致的子集）。
 3. **过滤策略可配置、可复现**：同一输入 + 同一配置 → 相同输出；过滤掉的物体/关系在 **`aux.enrich_2d`**（或等价命名）中留下统计与原因码，便于审计。
 
@@ -62,9 +62,14 @@
 ## 3. 与 v0 输出结构的映射
 
 - **`objects`**：沿用 `ObjectV0`；写入 `phrase`（描述）、**仅框或仅点之一**（`bbox_xyxy_norm_1000` 或 `point_uv_norm_1000`）、`quality`（如 `bbox_quality`）供下游过滤与 QA 难度分层。
-- **`relations`**：沿用 `RelationV0`；本阶段固定：
+- **`relations`**：沿用 `RelationV0`（`predicate`、`components`、`axis_signs` 均为模型已有字段）。本阶段固定：
   - `ref_frame = "image_plane"`
-  - `predicate ∈ {"left","right","above","below"}`（与规范一致；实现可用 `components` 或仅 `predicate` 二选一，**须与现有 `RelationV0` 校验一致**）
+  - **原子标签集**（规范 **§2.3**）：`left|right|above|below`。**复合方位**（如 **左上、右上、左下、右下**）**不**引入规范外的新字符串作唯一真源，而用：
+    - **`components: List[str]`**：长度 1 时可与单 `predicate` 同义；长度 **≥2** 时表示复合，例如 `["left","above"]`（左上）、`["right","below"]`（右下）；列表元素 **必须** 属于上述四原子之一。
+    - **可选 `axis_signs`**：与规范 **§4.2.1** 同一符号思想在 **2D 子集**上表达，**仅**使用键 `right` 与 `above`（不写 `front`），取值 `-1|0|+1`，与 `components` **语义一致、可互相校验**。
+  - **`predicate` 与 `components` 的填写约定（本轮）**：  
+    - **仅单轴显著**：只填 **`predicate`** 为对应原子，`components` 可省略或单元素（实现二选一但须**自洽且可测**）。  
+    - **双轴均显著（复合）**：**必须**填 **`components`** 为两个原子（顺序约定：**先水平 `left|right`，后垂直 `above|below`**）；**`predicate`** 填 **主原子**（以 `|delta_u|` 与 `|delta_v|` 较大者为准，平局规则见 §4.2），复合语义以 **`components` 为准**。
   - `source = "computed"`（或规范中的 `"computed"`）
   - `evidence`：至少 `method`（`bbox_center` 或 **`point_uv`**，与物体几何一致）、参与计算的代表点、`delta_uv`（可选）
 - **`aux.enrich_2d`**（建议结构，可调整命名）：
@@ -95,9 +100,12 @@
 ### 4.2 关系对级过滤（有序对 `(anchor, target)`）
 
 - **几何代表点（默认）**：有框则用 **bbox 中心**；仅有点则用 **`point_uv_norm_1000`**。比较 `delta_u`、`delta_v`（v 向下为正，则 **image_plane 的 above = 更小 v** 须在实现与文档中写死一处，避免符号反了）。
-- **`min_abs_delta_u` / `min_abs_delta_v`**：低于阈值则认为 **tie**，**不输出**该维度的 left/right 或 above/below（或输出带 `score=0` 的弱关系 — **推荐不输出**，减少噪声）。
-- **主方向选择（互斥）**：若 `|delta_u| > |delta_v|` 则只标 **left/right**；否则只标 **above/below**（或按规范拆成两条 — **未决**：单主谓词 vs 双轴分解，见 §7）。
-- **对称去重**：若已输出 `A left B`，则不再输出 `B right A`（除非业务需要双向；默认 **去重**）。
+- **`min_abs_delta_u` / `min_abs_delta_v`**：某轴 `|delta|` 低于阈值则该轴视为 **tie**，不参与该轴的原子输出。
+- **单原子 vs 复合（已定）**：
+  - **仅水平轴显著**（竖直为 tie）：只输出 **`predicate`** ∈ {left, right}（及可选 `components: ["left"]` 等自洽形式）。
+  - **仅竖直轴显著**：只输出 **`predicate`** ∈ {above, below}。
+  - **两轴均显著**：输出 **`components: [水平原子, 垂直原子]`**（§3 顺序约定），`predicate` 取 **主原子**（`|delta_u|` 与 `|delta_v|` 较大侧；若比率在 `tie_ratio_band` 内则按配置 **丢弃该对** 或 **降级为单轴** — 见 §7 微调）。
+- **对称去重**：单原子边按对向等价去重（如已存在语义上的 `A left B`，不再输出 `B right A`）。**复合边**以 **`components` 排序后的 tuple** 与 anchor/target 参与去重；对向复合（如 A 相对 B 为 `["left","above"]`，B 相对 A 为 `["right","below"]`）是否双写由配置决定，**默认只保留 anchor→target 一条**（与单轴策略一致）。
 - **重叠 bbox**：若 IoU > `ambiguous_iou` 且中心距离 < `ambiguous_center_dist`，认为 **空间关系不可靠**，**丢弃**该对或整图降级（`aux` 记 `reason=heavy_overlap`）。
 
 ### 4.3 质量与可追溯
@@ -117,9 +125,9 @@ rels = []
 for (a, t) in ordered_pairs(objs):   # 顺序策略可配置：全组合 / 仅不同类 / 等
     if filter_pair(a, t, pair_filters):
         continue
-    p = compute_predicate_image_plane(rep_point(a), rep_point(t), rules)
-    if p is not None:
-        rels.append(make_relation(a.id, t.id, p, evidence=...))
+    rel = compute_relation_image_plane(rep_point(a), rep_point(t), rules)  # 单原子或带 components
+    if rel is not None:
+        rels.append(rel)
 rels = dedupe_symmetric(rels)
 attach_aux_enrich_stats(...)
 ```
@@ -137,7 +145,7 @@ attach_aux_enrich_stats(...)
 ## 7. 未决问题（需你确认）
 
 1. ~~**同一文本多个 bbox / NMS**~~ **已定**：**一框或一点对应一个物体**；多 label 多几何则 **展开多 `ObjectV0`**；**框点互斥**；**不做 NMS**。上游 `count` 可用于一致性校验（可选），**不**用于合并框。
-2. **主方向互斥 vs 双谓词**：一对 `(A,B)` 是只产 **一个** predicate，还是在 `|du|`≈`|dv|` 时产两条弱边或丢弃？
+2. ~~**单轴 vs 复合**~~ **已定**：双轴显著时用 **`components`** 表达复合（左上/右下等）；单轴仅用 **`predicate`**。待微调：`|du|≈|dv|` 时 **丢弃对** 还是 **强制降为单轴**（配置项 `tie_ratio_band`）。
 3. **第一轮交付形态**：优先 **库函数 + 单测**（`openspatial_metadata.enrich.relation2d`），还是同时接 **CLI 子命令**（如 `openspatial-metadata enrich-2d --config ...`）？
 4. **与 adapter 的关系**：2D enrich 是 **PassthroughAdapter 之后的一步**，还是 **新 adapter 接口**（`enrich(sample: MetadataV0) -> MetadataV0`）？
 5. **上游混给框+点**：adapter 二选一策略默认 **优先框**、**优先点** 还是 **strict 报错**？
@@ -146,5 +154,6 @@ attach_aux_enrich_stats(...)
 
 ## 8. 文档与实现对齐清单（design 对齐后执行）
 
-- 更新 `metadata/docs/metadata_spec_v0_zh.md` 仅当引入与 §4.1 **不一致** 的新字段；否则在 `config_yaml_zh.md` / README 增加 **enrich 配置节** 即可。
+- `metadata/docs/metadata_spec_v0_zh.md` §4.1 已与 **§2.3** 对齐补充 `components` / 2D `axis_signs`；后续若再改字段名须同步。
+- `metadata/docs/config_yaml_zh.md` / `README.md`：增加 **enrich 配置节**（实现阶段）。
 - `plan.md` / `test_plan.md`：在 §7 确认后编写任务拆解与黄金向量测试表。
