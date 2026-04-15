@@ -106,7 +106,7 @@
   - **仅竖直轴显著**：只输出 **`predicate`** ∈ {above, below}。
   - **两轴均显著**：输出 **`components: [水平原子, 垂直原子]`**（§3 顺序约定），`predicate` 取 **主原子**（`|delta_u|` 与 `|delta_v|` 较大侧；若比率在 `tie_ratio_band` 内则按配置 **丢弃该对** 或 **降级为单轴** — 见 §7 微调）。
 - **对称去重**：单原子边按对向等价去重（如已存在语义上的 `A left B`，不再输出 `B right A`）。**复合边**以 **`components` 排序后的 tuple** 与 anchor/target 参与去重；对向复合（如 A 相对 B 为 `["left","above"]`，B 相对 A 为 `["right","below"]`）是否双写由配置决定，**默认只保留 anchor→target 一条**（与单轴策略一致）。
-- **重叠 bbox**：若 IoU > `ambiguous_iou` 且中心距离 < `ambiguous_center_dist`，认为 **空间关系不可靠**，**丢弃**该对或整图降级（`aux` 记 `reason=heavy_overlap`）。
+- **重叠 bbox / 近中心**：原句若写「**且**」表示 **AND**（两条件同时成立才丢弃），偏**严**、漏判少一些。默认推荐 **OR**：若 **IoU > `ambiguous_iou`** **或** **两框代表点欧氏距离（归一化坐标下）< `ambiguous_center_dist`**，即认为 **空间关系不可靠**，**丢弃**该对或整图降级（`aux` 记 `reason=heavy_overlap` / `reason=near_center` 可分因）。实现上可用配置 **`ambiguous_mode: "or" | "and"`**，默认 **`or`**。
 
 ### 4.3 质量与可追溯
 
