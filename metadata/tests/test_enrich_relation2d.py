@@ -4,7 +4,19 @@ from __future__ import annotations
 import unittest
 
 from openspatial_metadata.enrich import ObjectFilterOptions, enrich_relations_2d
-from openspatial_metadata.schema.metadata_v0 import DatasetV0, ImageV0, MetadataV0, ObjectV0, SampleV0
+from openspatial_metadata.schema.metadata_v0 import (
+    DatasetV0,
+    ImageV0,
+    MetadataV0,
+    ObjectV0,
+    RelationV0,
+    SampleV0,
+)
+
+
+def _evidence(rel: RelationV0) -> dict:
+    assert rel.evidence is not None
+    return rel.evidence
 
 
 def _img(path: str = "x.png", scale: int = 1000) -> ImageV0:
@@ -54,7 +66,7 @@ class TestEnrichGeometryPredicates(unittest.TestCase):
         self.assertEqual(r.target_id, "b#0")
         self.assertEqual(r.predicate, "right")
         self.assertIsNone(r.components)
-        self.assertEqual(r.evidence["delta_uv"], [300, 0])
+        self.assertEqual(_evidence(r)["delta_uv"], [300, 0])
 
     def test_g1_2_target_above_anchor(self):
         a = _box("a#0", [200, 300, 240, 360])
@@ -62,7 +74,7 @@ class TestEnrichGeometryPredicates(unittest.TestCase):
         md = enrich_relations_2d(_meta(a, b))
         r = md.relations[0]
         self.assertEqual(r.predicate, "above")
-        du, dv = r.evidence["delta_uv"]
+        du, dv = _evidence(r)["delta_uv"]
         self.assertEqual(du, 0)
         self.assertLess(dv, 0)
 
@@ -72,8 +84,9 @@ class TestEnrichGeometryPredicates(unittest.TestCase):
         md = enrich_relations_2d(_meta(a, b))
         r = md.relations[0]
         self.assertEqual(r.components, ["right", "below"])
-        self.assertGreater(r.evidence["delta_uv"][0], 0)
-        self.assertGreater(r.evidence["delta_uv"][1], 0)
+        ev = _evidence(r)
+        self.assertGreater(ev["delta_uv"][0], 0)
+        self.assertGreater(ev["delta_uv"][1], 0)
         self.assertEqual(r.predicate, "right")
 
     def test_g1_4_horizontal_only_when_vertical_tie(self):
@@ -83,7 +96,7 @@ class TestEnrichGeometryPredicates(unittest.TestCase):
         r = md.relations[0]
         self.assertEqual(r.predicate, "right")
         self.assertIsNone(r.components)
-        self.assertLess(abs(r.evidence["delta_uv"][1]), 12)
+        self.assertLess(abs(_evidence(r)["delta_uv"][1]), 12)
 
     def test_g1_5_near_equal_deltas_still_emits_composite(self):
         """Both axes significant and similar magnitude → composite, not dropped."""
@@ -92,8 +105,11 @@ class TestEnrichGeometryPredicates(unittest.TestCase):
         md = enrich_relations_2d(_meta(a, b))
         self.assertEqual(len(md.relations), 1)
         r = md.relations[0]
-        self.assertEqual(len(r.components), 2)
-        self.assertEqual(r.predicate, r.components[0])
+        self.assertIsNotNone(r.components)
+        comp = r.components
+        assert comp is not None  # narrow for type checker
+        self.assertEqual(len(comp), 2)
+        self.assertEqual(r.predicate, comp[0])
 
 
 class TestEnrichObjectFilters(unittest.TestCase):
@@ -146,7 +162,7 @@ class TestEnrichPointOnly(unittest.TestCase):
         p2 = _pt("n#0", [400, 120])
         md = enrich_relations_2d(_meta(p1, p2))
         self.assertEqual(len(md.relations), 1)
-        self.assertIn("point_uv", md.relations[0].evidence["method"])
+        self.assertIn("point_uv", _evidence(md.relations[0])["method"])
 
 
 class TestEnrichNonMutating(unittest.TestCase):
