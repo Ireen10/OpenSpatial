@@ -4,8 +4,10 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from importlib import import_module
+from inspect import signature
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .config.loader import (
     discover_dataset_configs,
@@ -17,6 +19,50 @@ from .config.loader import (
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 
 PARALLEL_WORKERS_CAP = 32
+
+
+def _make_adapter_factory(ds) -> Callable[[], Optional[object]]:
+    """
+    Build a per-call adapter factory. Returns None when no adapter spec present.
+    Adapter constructors may optionally accept dataset_name/split keyword args.
+    """
+    spec = getattr(ds, "adapter", None)
+    if spec is None:
+        return lambda: None
+
+    module_name = spec.module
+    class_name = spec.class_name or spec.class_
+    if module_name is None and spec.file_name is not None:
+        module_name = f"openspatial_metadata.adapters.{spec.file_name}"
+    if module_name is None or class_name is None:
+        return lambda: None
+
+    def _factory() -> Optional[object]:
+        mod = import_module(module_name)
+        cls = getattr(mod, class_name)
+        try:
+            params = signature(cls).parameters
+            if "dataset_name" in params or "split" in params:
+                return cls(dataset_name=ds.name, split="unknown")
+        except Exception:
+            # If signature introspection fails, fall back to no-arg init.
+            pass
+        try:
+            return cls()
+        except TypeError:
+            return cls(dataset_name=ds.name, split="unknown")
+
+    return _factory
+
+
+def _apply_adapter(adapter: Optional[object], record: Dict) -> Dict:
+    if adapter is None:
+        return dict(record)
+    convert = getattr(adapter, "convert", None)
+    if callable(convert):
+        out = convert(record)
+        return dict(out) if isinstance(out, dict) else dict(record)
+    return dict(record)
 
 
 def effective_parallel_workers(cli_n: int, global_n: int, file_count: int, cap: int = PARALLEL_WORKERS_CAP) -> int:
@@ -59,6 +105,7 @@ def _process_jsonl_file(
     resume: bool,
     strict: bool,
     output_root: Path,
+    adapter_factory: Callable[[], Optional[object]],
 ) -> None:
     del strict  # reserved for future per-record error policy
     ckpt_path = _checkpoint_path(output_root, str(input_path))
@@ -66,11 +113,12 @@ def _process_jsonl_file(
     next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
 
     buffer: List[Dict] = []
+    adapter = adapter_factory()
     with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
         for record, ref in iter_jsonl(input_path):
             if ref.input_index < next_idx:
                 continue
-            out = dict(record)
+            out = _apply_adapter(adapter, record)
             out.setdefault("aux", {})
             out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
             buffer.append(out)
@@ -102,6 +150,7 @@ def _process_jsonl_files_parallel(
     resume: bool,
     strict: bool,
     output_root: Path,
+    adapter_factory: Callable[[], Optional[object]],
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ex = ThreadPoolExecutor(max_workers=effective)
@@ -117,6 +166,7 @@ def _process_jsonl_files_parallel(
                 resume=resume,
                 strict=strict,
                 output_root=output_root,
+                adapter_factory=adapter_factory,
             )
             futures[fut] = ip
         for fut in as_completed(futures):
@@ -131,9 +181,10 @@ def _process_jsonl_files_parallel(
         ex.shutdown(wait=True, cancel_futures=False)
 
 
-def _read_single_json_file_record(ip: Path) -> Dict:
+def _read_single_json_file_record(ip: Path, *, adapter_factory: Callable[[], Optional[object]]) -> Dict:
     (record, ref) = next(iter_json_file(ip))
-    out = dict(record)
+    adapter = adapter_factory()
+    out = _apply_adapter(adapter, record)
     out.setdefault("aux", {})
     out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
     return out
@@ -169,6 +220,7 @@ def _process_json_files_sequential(
     batch_size: int,
     resume: bool,
     output_root: Path,
+    adapter_factory: Callable[[], Optional[object]],
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     part_idx = 0
@@ -178,7 +230,7 @@ def _process_json_files_sequential(
         ckpt = _read_checkpoint(ckpt_path) if resume else None
         if ckpt and ckpt.get("done") is True:
             continue
-        rec = _read_single_json_file_record(ip)
+        rec = _read_single_json_file_record(ip, adapter_factory=adapter_factory)
         buffer.append(rec)
         if len(buffer) >= batch_size:
             part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
@@ -195,6 +247,7 @@ def _process_json_files_parallel(
     batch_size: int,
     resume: bool,
     output_root: Path,
+    adapter_factory: Callable[[], Optional[object]],
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     pending: List[Path] = []
@@ -213,7 +266,7 @@ def _process_json_files_parallel(
     futures = {}
     try:
         for ip in pending:
-            futures[ex.submit(_read_single_json_file_record, ip)] = ip
+            futures[ex.submit(_read_single_json_file_record, ip, adapter_factory=adapter_factory)] = ip
         for fut in as_completed(futures):
             ip = futures[fut]
             try:
@@ -258,6 +311,7 @@ def main(argv=None) -> None:
     for cfg_path in cfg_paths:
         ds = load_dataset_config(cfg_path)
         resolve_adapter(ds)
+        adapter_factory = _make_adapter_factory(ds)
         for split in ds.splits:
             files = [Path(p) for p in expand_inputs(split.inputs)]
             out_dir = output_root / ds.name / split.name
@@ -274,6 +328,7 @@ def main(argv=None) -> None:
                         resume=args.resume or g.resume,
                         strict=g.strict,
                         output_root=output_root,
+                        adapter_factory=adapter_factory,
                     )
                 else:
                     for ip in files:
@@ -285,6 +340,7 @@ def main(argv=None) -> None:
                             resume=args.resume or g.resume,
                             strict=g.strict,
                             output_root=output_root,
+                            adapter_factory=adapter_factory,
                         )
             elif split.input_type == "json_files":
                 if eff > 1:
@@ -295,6 +351,7 @@ def main(argv=None) -> None:
                         batch_size=g.batch_size,
                         resume=args.resume or g.resume,
                         output_root=output_root,
+                        adapter_factory=adapter_factory,
                     )
                 else:
                     _process_json_files_sequential(
@@ -303,6 +360,7 @@ def main(argv=None) -> None:
                         batch_size=g.batch_size,
                         resume=args.resume or g.resume,
                         output_root=output_root,
+                        adapter_factory=adapter_factory,
                     )
             else:
                 raise ValueError(f"Unknown input_type: {split.input_type}")
