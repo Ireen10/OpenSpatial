@@ -165,6 +165,31 @@ class TestEnrichPointOnly(unittest.TestCase):
         self.assertIn("point_uv", _evidence(md.relations[0])["method"])
 
 
+class TestEnrichSkipExisting(unittest.TestCase):
+    def test_skip_pair_when_existing_same_anchor_target_ref_frame(self):
+        """Pre-existing image_plane edge (any source) blocks duplicate computed edge."""
+        a = _box("a#0", [0, 0, 50, 50])
+        b = _box("b#0", [200, 0, 250, 50])
+        existing = RelationV0(
+            anchor_id="a#0",
+            target_id="b#0",
+            predicate="left",
+            ref_frame="image_plane",
+            source="imported",
+        )
+        md = MetadataV0(
+            dataset=DatasetV0(name="t", version="v0", split="train"),
+            sample=SampleV0(sample_id="s/0", view_id=0, image=_img()),
+            objects=[a, b],
+            relations=[existing],
+            aux={},
+        )
+        out = enrich_relations_2d(md)
+        self.assertEqual(len(out.relations), 1)
+        self.assertEqual(out.relations[0].source, "imported")
+        self.assertEqual(out.aux["enrich_2d"]["stats"]["n_pairs_skipped_existing"], 1)
+
+
 class TestEnrichNonMutating(unittest.TestCase):
     def test_input_unchanged(self):
         a = _box("a#0", [0, 0, 50, 50])

@@ -63,6 +63,11 @@ def _strip_old_computed_image_plane(relations: List[RelationV0]) -> List[Relatio
     return out
 
 
+def _existing_image_plane_triples(relations: List[RelationV0]) -> set[tuple[str, str, str]]:
+    """Directed (anchor_id, target_id, ref_frame) for existing image_plane edges."""
+    return {(r.anchor_id, r.target_id, r.ref_frame) for r in relations if r.ref_frame == "image_plane"}
+
+
 def _build_relation(
     anchor_id: str,
     target_id: str,
@@ -209,6 +214,10 @@ def enrich_relations_2d(
     Return a deep copy of *metadata* with ``relations`` extended by computed
     ``image_plane`` edges; existing ``source=='computed'`` + same ref_frame rows are removed first.
 
+    If a relation already exists with the same **(anchor_id, target_id, ref_frame)** and
+    ``ref_frame == "image_plane"`` among the kept (non-stripped) rows, that ordered pair is
+    **not** recomputed (avoids duplicate edges next to imported / manual rows).
+
     Raises:
         ValueError: if any object carries both bbox and point.
     """
@@ -230,14 +239,22 @@ def enrich_relations_2d(
     min_dv = C.scale_length(float(C.MIN_ABS_DELTA_V_REF), scale)
     near_d = C.scale_length(float(C.NEAR_CENTER_DIST_REF), scale)
 
+    base_relations = _strip_old_computed_image_plane(md.relations)
+    skip_triples = _existing_image_plane_triples(base_relations)
+
     sorted_objs = sorted(kept, key=lambda o: o.object_id)
     new_rels: List[RelationV0] = []
     pairs = 0
+    skipped_existing = 0
     for i in range(len(sorted_objs)):
         for j in range(i + 1, len(sorted_objs)):
             a, b = sorted_objs[i], sorted_objs[j]
             anchor, target = (a, b) if a.object_id < b.object_id else (b, a)
             pairs += 1
+            triple = (anchor.object_id, target.object_id, "image_plane")
+            if triple in skip_triples:
+                skipped_existing += 1
+                continue
             rel = _maybe_relation_for_pair(
                 anchor,
                 target,
@@ -250,7 +267,7 @@ def enrich_relations_2d(
             if rel is not None:
                 new_rels.append(rel)
 
-    md.relations = _strip_old_computed_image_plane(md.relations) + new_rels
+    md.relations = base_relations + new_rels
     md.aux.setdefault("enrich_2d", {})
     md.aux["enrich_2d"].update(
         {
@@ -260,6 +277,7 @@ def enrich_relations_2d(
                 "n_objects_in": n_in,
                 "n_objects_kept": n_kept,
                 "n_pairs_considered": pairs,
+                "n_pairs_skipped_existing": skipped_existing,
                 "n_relations_out": len(new_rels),
             },
         }

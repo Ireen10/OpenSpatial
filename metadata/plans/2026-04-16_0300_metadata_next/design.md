@@ -77,7 +77,7 @@
   - `config_hash` 或序列化后的过滤配置快照
   - `dropped_objects: [{object_id, reason, ...}]`
   - `dropped_relation_candidates: [{anchor_id, target_id, reason}]`
-  - `stats: {n_objects_in, n_objects_kept, n_pairs_considered, n_relations_out}`
+  - `stats: {n_objects_in, n_objects_kept, n_pairs_considered, n_pairs_skipped_existing, n_relations_out}`（`n_pairs_skipped_existing`：已有 **(anchor_id, target_id, ref_frame)** 且 `ref_frame==image_plane` 的边与本轮候选一致时跳过几何计算）
 
 ---
 
