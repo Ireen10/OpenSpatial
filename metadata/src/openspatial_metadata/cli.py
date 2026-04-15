@@ -22,8 +22,24 @@ from .schema.metadata_v0 import MetadataV0
 PARALLEL_WORKERS_CAP = 32
 
 
+_PROGRESS_MODE = "log"  # "log" | "tqdm" | "none"
+_TQDM = None
+
+
 def _log(msg: str) -> None:
-    print(f"[openspatial-metadata] {msg}", file=sys.stderr, flush=True)
+    if _PROGRESS_MODE == "none":
+        return
+    prefix = f"[openspatial-metadata] {msg}"
+    if _PROGRESS_MODE == "tqdm" and _TQDM is not None:
+        _TQDM.write(prefix, file=sys.stderr)
+        return
+    print(prefix, file=sys.stderr, flush=True)
+
+
+def _tqdm(*args, **kwargs):
+    if _PROGRESS_MODE != "tqdm" or _TQDM is None:
+        return None
+    return _TQDM(*args, **kwargs)
 
 
 def _make_adapter_factory(
@@ -188,6 +204,7 @@ def _process_jsonl_file(
     strict: bool,
     output_root: Path,
     checkpoint_root: Path,
+    tqdm_pos: Optional[int] = None,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
     ds: Any,
@@ -202,6 +219,20 @@ def _process_jsonl_file(
 
     buffer: List[Dict] = []
     adapter = adapter_factory()
+    bar = None
+    processed = 0
+    if _PROGRESS_MODE == "tqdm":
+        bar = _tqdm(
+            total=None,
+            position=tqdm_pos or 0,
+            desc=f"{ds.name}/{split_name} {input_path.name}",
+            unit="rec",
+            dynamic_ncols=True,
+            leave=False,
+        )
+        if bar is not None and next_idx > 0:
+            bar.update(next_idx)
+            processed = next_idx
     with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
         for record, ref in iter_jsonl(input_path):
             if ref.input_index < next_idx:
@@ -212,11 +243,15 @@ def _process_jsonl_file(
             out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
             out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
             buffer.append(out)
+            if bar is not None:
+                bar.update(1)
+                processed += 1
             if len(buffer) >= batch_size:
                 w.write_records(buffer)
                 w.flush()
                 next_idx = ref.input_index + 1
-                _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
+                if bar is None:
+                    _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
                 _write_checkpoint_atomic(
                     ckpt_path,
                     {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0},
@@ -226,11 +261,14 @@ def _process_jsonl_file(
             w.write_records(buffer)
             w.flush()
             next_idx = next_idx + len(buffer)
-            _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
+            if bar is None:
+                _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
             _write_checkpoint_atomic(
                 ckpt_path,
                 {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0},
             )
+    if bar is not None:
+        bar.close()
 
 
 def _process_jsonl_files_parallel(
@@ -251,9 +289,14 @@ def _process_jsonl_files_parallel(
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ex = ThreadPoolExecutor(max_workers=effective)
-    futures = {}
+    futures: Dict[Any, Tuple[Path, int]] = {}
+    slots = list(range(max(1, effective)))
+    pending = list(files)
     try:
-        for ip in files:
+        # Submit up to `effective` tasks, each holding a unique progress slot.
+        while pending and slots:
+            slot = slots.pop(0)
+            ip = pending.pop(0)
             op = out_dir / (ip.stem + ".metadata.jsonl")
             fut = ex.submit(
                 _process_jsonl_file,
@@ -264,22 +307,48 @@ def _process_jsonl_files_parallel(
                 strict=strict,
                 output_root=output_root,
                 checkpoint_root=checkpoint_root,
+                tqdm_pos=slot,
                 adapter_factory=adapter_factory,
                 relations_2d=relations_2d,
                 ds=ds,
                 split_name=split_name,
                 dataset_path=dataset_path,
             )
-            futures[fut] = ip
-        for fut in as_completed(futures):
-            ip = futures[fut]
-            try:
-                fut.result()
-                _log(f"{ds.name}/{split_name}: done {ip.name}")
-            except Exception as exc:  # noqa: BLE001 — surface to user under strict
-                print(f"[openspatial-metadata] JSONL worker failed: {ip}\n{exc!r}", file=sys.stderr)
-                ex.shutdown(wait=True, cancel_futures=True)
-                sys.exit(1)
+            futures[fut] = (ip, slot)
+
+        while futures:
+            for fut in as_completed(list(futures.keys())):
+                ip, slot = futures.pop(fut)
+                try:
+                    fut.result()
+                    _log(f"{ds.name}/{split_name}: done {ip.name}")
+                except Exception as exc:  # noqa: BLE001 — surface to user under strict
+                    print(f"[openspatial-metadata] JSONL worker failed: {ip}\n{exc!r}", file=sys.stderr)
+                    ex.shutdown(wait=True, cancel_futures=True)
+                    sys.exit(1)
+                slots.append(slot)
+                if pending:
+                    slot = slots.pop(0)
+                    nip = pending.pop(0)
+                    op = out_dir / (nip.stem + ".metadata.jsonl")
+                    nfut = ex.submit(
+                        _process_jsonl_file,
+                        nip,
+                        op,
+                        batch_size=batch_size,
+                        resume=resume,
+                        strict=strict,
+                        output_root=output_root,
+                        checkpoint_root=checkpoint_root,
+                        tqdm_pos=slot,
+                        adapter_factory=adapter_factory,
+                        relations_2d=relations_2d,
+                        ds=ds,
+                        split_name=split_name,
+                        dataset_path=dataset_path,
+                    )
+                    futures[nfut] = (nip, slot)
+                break
     finally:
         ex.shutdown(wait=True, cancel_futures=False)
 
@@ -438,11 +507,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-root", default=None, help="Override output root (otherwise from global config).")
     p.add_argument("--resume", action="store_true", help="Resume from checkpoints.")
     p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel); 0 = use global.yaml num_workers.")
+    p.add_argument("--progress", choices=["log", "tqdm", "none"], default="log", help="Progress display mode.")
     return p
 
 
 def main(argv=None) -> None:
+    global _PROGRESS_MODE, _TQDM
     args = build_parser().parse_args(argv)
+    _PROGRESS_MODE = args.progress
+    if _PROGRESS_MODE == "tqdm":
+        try:
+            from tqdm import tqdm as _real_tqdm  # type: ignore
+
+            _TQDM = _real_tqdm
+        except Exception:
+            _TQDM = None
+            _PROGRESS_MODE = "log"
+            _log("tqdm not available; falling back to log progress")
     g = load_global_config(args.global_config)
     cli_workers = args.num_workers
 
