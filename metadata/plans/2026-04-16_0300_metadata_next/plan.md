@@ -8,7 +8,7 @@
 
 - **文档**：本目录 `test_plan.md` 与实现同步勾选；`README.md` 指回 design；`metadata/README.md` 增加 **enrich 库入口** 一句（无新 CLI 时可不写 config_yaml）。
 - **代码**：`metadata/src/openspatial_metadata/enrich/`（或等价单模块 `relation2d.py`）— **公开 API** 如 `enrich_relations_2d(metadata: MetadataV0, *, options: ...) -> MetadataV0`（签名以实现为准）；内部分拆 `geometry.py` / `filters.py` 仅当单文件过长。
-- **配置**：物体级过滤等 **首轮以 dataclass + 默认值 + 可选参数** 为主；与 `design.md` §4.2 **写死**项（IoU/近中心/对称向/平局丢弃）为 **模块常量**。
+- **配置**：物体级过滤等 **首轮以 dataclass + 默认值 + 可选参数** 为主；与 `design.md` §4.2 **写死**项（IoU/近中心/对称向/平局丢弃）为 **模块常量**，且 **按 `sample.image.coord_scale` 与 v0 归一化空间一致换算**（见 `design.md` §4.4）。
 - **样例/fixtures**：`metadata/tests/fixtures/` 下最小 JSON（或手写 `MetadataV0` dict）用于黄金向量与异常路径。
 
 ---

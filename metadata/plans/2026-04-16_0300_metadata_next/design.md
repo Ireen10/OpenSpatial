@@ -114,6 +114,15 @@
 - 对保留的物体写入 `quality.bbox_quality` 建议枚举：`high|medium|low|unknown`（规则可由面积、边界贴边、是否被裁剪等推导）。
 - 每条 `relation` 的 `evidence` 必须能复算：至少保存两点坐标与 `method`。
 
+### 4.4 写死阈值与坐标归一化（`0 … coord_scale`，通常 1000）
+
+**会不会有问题？** — 在仓库已约定 **v0 物体坐标与 `coord_scale`（常见为 1000）同一套归一化空间** 的前提下，**阈值写死在代码里没有尺度矛盾**：距离、面积、`min_abs_delta_*`、近中心阈值、平局带等，全部理解为 **「与该 sample 的 `sample.image.coord_scale` 一致的归一化单位」** 下的常数（开发时常在 `coord_scale=1000` 下标定一组整数/浮点常量）。
+
+**仍须注意的两点**（实现时写进模块 docstring 即可）：
+
+1. **与 `coord_scale` 一致**：若某条 metadata 的 `coord_scale` **不是** 1000，**不得**仍用「为 1000 标定」的裸常数去比；应 **`effective_scale = metadata.sample.image.coord_scale or 1000`**，并将标定常量 **按 `effective_scale / 1000` 比例换算**（或直接把常数定义为 **`k * effective_scale` 的分数**，例如近中心距离 = `0.02 * effective_scale`），避免换 scale 后「同一物理语义、阈值却错一档」。
+2. **与 YAML 解耦不等于不可维护**：常量集中在一个模块（如 `enrich/constants.py`）+ 注释写明「在 scale=1000 下等价于约 N 像素若全幅宽约 W」之类，便于日后单开一轮把少数阈值暴露为配置，而**无需**本轮改设计。
+
 ---
 
 ## 5. 核心流程（伪代码级）
