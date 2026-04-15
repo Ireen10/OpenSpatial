@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openspatial-metadata"
+version = "0.0.1"
+description = "Metadata subproject: config-driven ingestion, JSON/JSONL IO, and utilities (v0)."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "pydantic>=1.8,<2",
+  "pyyaml",
+  "typing_extensions>=4.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[project.scripts]
+openspatial-metadata = "openspatial_metadata.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# 供 Pylance / BasedPyright 解析 `import openspatial_metadata`（路径相对于本文件所在目录）
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+extraPaths = ["src"]

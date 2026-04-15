@@ -1,3 +1,5 @@
+.vscode/
+
 outputs/
 env
 *.pyc
@@ -11,5 +13,11 @@ output/
 vis/
 scripts/
 config/debug*.yaml
-tests/
+# 仅忽略仓库根目录的 tests/；勿用 tests/，否则会误伤 metadata/tests/ 等子目录
+/tests/
 .pytest_cache/
+
+# metadata 子项目：本地构建与 CLI 测试临时输出
+metadata/src/**/*.egg-info/
+metadata/tests/.tmp_out/
+metadata/tests/.tmp_demo_out/

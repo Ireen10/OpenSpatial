@@ -1,0 +1,7 @@
+output_root: metadata_out
+scale: 1000
+batch_size: 3
+num_workers: 2
+resume: false
+strict: true
+

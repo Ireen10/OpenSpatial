@@ -1,0 +1,1 @@
+{"dataset":{"name":"demo_dataset","version":"v0","split":"train"},"sample":{"sample_id":"demo_file/0006","view_id":0,"image":{"path":"images/0006.png","width":640,"height":480,"coord_space":"norm_0_999","coord_scale":1000}},"camera":null,"objects":[{"object_id":"table#0","category":"table","bbox_xyxy_norm_1000":[6,6,16,16]}],"relations":[],"aux":{}}

@@ -20,6 +20,7 @@ description: Enforces a documentation-first engineering workflow (Design → Exe
    - `test_plan.md` (third, only after plan alignment)
    - `change_log.md` (written at the end of the change, after implementation/testing; not upfront)
 4. **Changes always recorded**: For every subsequent change/new feature, create a new timestamped directory; never overwrite prior change docs.
+5. **Self-acceptance testing is mandatory**: After implementation, the agent must run the tests specified in `test_plan.md` (or the `bugfix_brief.md` test steps for tiny bugfixes). Do not consider the change “done” until the agreed tests pass; if tests fail, fix and rerun.
 
 ## Fast-track for tiny bugfixes (still doc-first)
 
@@ -74,7 +75,9 @@ If any condition fails, use the full 4-doc workflow.
    - Make minimal, well-scoped changes.
    - Keep changes consistent with the approved docs.
 6. **Test**
-   - Execute the approved test plan (or the brief test steps).
+   - **Execute the approved test plan** (or the brief test steps).
+   - If tests are described as commands/scripts, run them.
+   - If tests require manual verification, follow the checklist and record outcomes.
 7. **Write `change_log.md`**
    - Record what changed, what was tested, results, and any deviations.
 

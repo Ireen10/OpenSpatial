@@ -1,0 +1,4 @@
+{"dataset":{"name":"multi","version":"v0","split":"train"},"sample":{"sample_id":"beta/0","view_id":0,"image":{"path":"b0.png","width":1,"height":1}},"camera":null,"objects":[],"relations":[],"aux":{}}
+{"dataset":{"name":"multi","version":"v0","split":"train"},"sample":{"sample_id":"beta/1","view_id":0,"image":{"path":"b1.png","width":1,"height":1}},"camera":null,"objects":[],"relations":[],"aux":{}}
+{"dataset":{"name":"multi","version":"v0","split":"train"},"sample":{"sample_id":"beta/2","view_id":0,"image":{"path":"b2.png","width":1,"height":1}},"camera":null,"objects":[],"relations":[],"aux":{}}
+{"dataset":{"name":"multi","version":"v0","split":"train"},"sample":{"sample_id":"beta/3","view_id":0,"image":{"path":"b3.png","width":1,"height":1}},"camera":null,"objects":[],"relations":[],"aux":{}}

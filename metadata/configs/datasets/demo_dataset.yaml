@@ -1,0 +1,17 @@
+name: demo_dataset
+meta:
+  source: demo
+  notes: minimal fixtures for framework tests
+adapter:
+  file_name: passthrough
+  class_name: PassthroughAdapter
+splits:
+  - name: train_jsonl
+    input_type: jsonl
+    inputs:
+      - "metadata/tests/fixtures/jsonl_shard_small.jsonl"
+  - name: train_json
+    input_type: json_files
+    inputs:
+      - "metadata/tests/fixtures/json_files_small/*.json"
+

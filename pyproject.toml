@@ -1,0 +1,10 @@
+# 仅用于编辑器 / Pyright / Pylance 等工作区配置（非发布包）。
+# 不在此目录执行 pip install；metadata 子项目见 metadata/pyproject.toml。
+
+[tool.pyright]
+extraPaths = ["metadata/src"]
+include = ["metadata"]
+
+[tool.basedpyright]
+extraPaths = ["metadata/src"]
+include = ["metadata"]
