@@ -13,6 +13,7 @@ class DatasetV0(BaseModel):
     version: str = "v0"
     split: str = "unknown"
     source: Optional[str] = None
+    dataset_path: Optional[str] = None
 
 
 class ImageV0(BaseModel):

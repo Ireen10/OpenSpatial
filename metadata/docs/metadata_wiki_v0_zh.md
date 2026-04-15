@@ -51,7 +51,7 @@
 
 ```json
 {
-  "dataset": { "name": "human_anno", "version": "v0", "split": "train" },
+  "dataset": { "name": "human_anno", "version": "v0", "split": "train", "dataset_path": "metadata/configs/datasets/human_anno/dataset.yaml" },
   "sample": {
     "sample_id": "human_anno/img_000123",
     "view_id": 0,
@@ -162,6 +162,7 @@
 | `dataset.version` | `string` | 数据集版本 | `"v1.0"` |
 | `dataset.split` | `string` | split 标识 | `"train"` |
 | `dataset.source` | `string?` | 数据源（来自哪个开源数据集/平台） | `"RefCOCO"` |
+| `dataset.dataset_path` | `string?` | 可选：dataset 配置路径（用于追溯生成配置） | `"metadata/configs/datasets/refcoco/dataset.yaml"` |
 
 ### 6.2 `sample`（图像基本信息）
 

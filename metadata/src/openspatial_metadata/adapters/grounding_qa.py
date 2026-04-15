@@ -103,11 +103,20 @@ class GroundingQAAdapter:
     Parses assistant grounding markers into objects + queries.
     """
 
-    def __init__(self, *, dataset_name: str = "unknown", split: str = "unknown", coord_space: str = "norm_0_999", coord_scale: int = 1000):
+    def __init__(
+        self,
+        *,
+        dataset_name: str = "unknown",
+        split: str = "unknown",
+        coord_space: str = "norm_0_999",
+        coord_scale: int = 1000,
+        query_type_default: Optional[str] = None,
+    ):
         self.dataset_name = dataset_name
         self.split = split
         self.coord_space = coord_space
         self.coord_scale = coord_scale
+        self.query_type_default = query_type_default
 
     def convert(self, record: Dict[str, Any]) -> Dict[str, Any]:
         warnings: List[Dict[str, Any]] = []
@@ -147,6 +156,7 @@ class GroundingQAAdapter:
                         "object_id": oid,
                         # category is required by schema, but this dataset has no explicit category.
                         "category": "",
+                        "phrase": ref_exp,
                         "bbox_xyxy_norm_1000": box,
                     }
                 )
@@ -157,9 +167,11 @@ class GroundingQAAdapter:
                 continue
             qid = MetadataV0.make_query_id("q", q_idx)
             q_idx += 1
+            qt = self.query_type_default or ("single_instance_grounding" if len(cand_ids) == 1 else "multi_instance_grounding")
             q: Dict[str, Any] = {
                 "query_id": qid,
                 "query_text": ref_exp,
+                "query_type": qt,
                 "candidate_object_ids": cand_ids,
                 "count": len(cand_ids),
             }

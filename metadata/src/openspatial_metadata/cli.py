@@ -62,6 +62,10 @@ def _make_adapter_factory(
                 kwargs["coord_space"] = coord_space
             if "coord_scale" in params:
                 kwargs["coord_scale"] = coord_scale
+            if "query_type_default" in params:
+                meta = getattr(ds, "meta", None)
+                if isinstance(meta, dict) and isinstance(meta.get("query_type"), str) and meta.get("query_type"):
+                    kwargs["query_type_default"] = meta["query_type"]
         except Exception:
             # If signature introspection fails, fall back to minimal/no-arg init.
             kwargs = {}
@@ -103,7 +107,7 @@ def _apply_enrich_if_enabled(out: Dict, *, relations_2d: bool) -> Dict:
     return md2.dict()
 
 
-def _apply_dataset_meta(out: Dict, *, ds: Any, split_name: str) -> Dict:
+def _apply_dataset_meta(out: Dict, *, ds: Any, split_name: str, dataset_path: Optional[str] = None) -> Dict:
     """
     Inject dataset config meta into output metadata.
     - Fills missing dataset.name/version/split
@@ -121,12 +125,18 @@ def _apply_dataset_meta(out: Dict, *, ds: Any, split_name: str) -> Dict:
     d.setdefault("name", getattr(ds, "name", "unknown"))
     d.setdefault("version", "v0")
     d.setdefault("split", split_name)
+    if isinstance(dataset_path, str) and dataset_path:
+        d.setdefault("dataset_path", dataset_path)
 
     meta = getattr(ds, "meta", None)
     if isinstance(meta, dict):
         if d.get("source") in (None, "") and isinstance(meta.get("source"), str) and meta.get("source"):
             d["source"] = meta["source"]
-        d.setdefault("meta", meta)
+        if "meta" not in d:
+            reserved = {"name", "version", "split", "source", "dataset_path", "meta"}
+            filtered = {k: v for k, v in meta.items() if k not in reserved and k not in d}
+            if filtered:
+                d["meta"] = filtered
 
     return out
 
@@ -175,6 +185,7 @@ def _process_jsonl_file(
     relations_2d: bool,
     ds: Any,
     split_name: str,
+    dataset_path: str,
 ) -> None:
     del strict  # reserved for future per-record error policy
     ckpt_path = _checkpoint_path(output_root, str(input_path))
@@ -190,7 +201,7 @@ def _process_jsonl_file(
             out = _apply_adapter(adapter, record)
             out.setdefault("aux", {})
             out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-            out = _apply_dataset_meta(out, ds=ds, split_name=split_name)
+            out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
             out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
             buffer.append(out)
             if len(buffer) >= batch_size:
@@ -227,6 +238,7 @@ def _process_jsonl_files_parallel(
     relations_2d: bool,
     ds: Any,
     split_name: str,
+    dataset_path: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ex = ThreadPoolExecutor(max_workers=effective)
@@ -246,6 +258,7 @@ def _process_jsonl_files_parallel(
                 relations_2d=relations_2d,
                 ds=ds,
                 split_name=split_name,
+                dataset_path=dataset_path,
             )
             futures[fut] = ip
         for fut in as_completed(futures):
@@ -268,13 +281,14 @@ def _read_single_json_file_record(
     relations_2d: bool,
     ds: Any,
     split_name: str,
+    dataset_path: str,
 ) -> Dict:
     (record, ref) = next(iter_json_file(ip))
     adapter = adapter_factory()
     out = _apply_adapter(adapter, record)
     out.setdefault("aux", {})
     out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-    out = _apply_dataset_meta(out, ds=ds, split_name=split_name)
+    out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
     out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
     return out
 
@@ -313,6 +327,7 @@ def _process_json_files_sequential(
     relations_2d: bool,
     ds: Any,
     split_name: str,
+    dataset_path: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     part_idx = 0
@@ -328,6 +343,7 @@ def _process_json_files_sequential(
             relations_2d=relations_2d,
             ds=ds,
             split_name=split_name,
+            dataset_path=dataset_path,
         )
         buffer.append(rec)
         if len(buffer) >= batch_size:
@@ -349,6 +365,7 @@ def _process_json_files_parallel(
     relations_2d: bool,
     ds: Any,
     split_name: str,
+    dataset_path: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     pending: List[Path] = []
@@ -375,6 +392,7 @@ def _process_json_files_parallel(
                     relations_2d=relations_2d,
                     ds=ds,
                     split_name=split_name,
+                    dataset_path=dataset_path,
                 )
             ] = ip
         for fut in as_completed(futures):
@@ -455,6 +473,7 @@ def main(argv=None) -> None:
                         relations_2d=rel2d,
                         ds=ds,
                         split_name=split.name,
+                        dataset_path=cfg_path,
                     )
                 else:
                     for ip in files:
@@ -471,6 +490,7 @@ def main(argv=None) -> None:
                             relations_2d=rel2d,
                             ds=ds,
                             split_name=split.name,
+                            dataset_path=cfg_path,
                         )
                         _log(f"{ds.name}/{split.name}: done {ip.name}")
             elif split.input_type == "json_files":
@@ -486,6 +506,7 @@ def main(argv=None) -> None:
                         relations_2d=rel2d,
                         ds=ds,
                         split_name=split.name,
+                        dataset_path=cfg_path,
                     )
                 else:
                     _process_json_files_sequential(
@@ -498,6 +519,7 @@ def main(argv=None) -> None:
                         relations_2d=rel2d,
                         ds=ds,
                         split_name=split.name,
+                        dataset_path=cfg_path,
                     )
             else:
                 raise ValueError(f"Unknown input_type: {split.input_type}")
