@@ -4,7 +4,7 @@
 
 **文档状态**
 
-- `design.md`：**已定一版可讨论稿**（待你确认未决问题后再锁 `plan.md` / `test_plan.md`）。
-- `plan.md` / `test_plan.md`：骨架保留，**勿在 design 对齐前 deep 实现**。
+- `design.md`：**已定稿**（§7 收口：enrich 与 adapter 解耦、框点混用报错、首轮仅库+测、对称向/平局/IoU 规则写死）。
+- `plan.md` / `test_plan.md`：**已编写**，可进入实现阶段。
 
 **与规范的关系**：输出对齐 `metadata/docs/metadata_spec_v0_zh.md` §2.3、§4.1（`image_plane` 下原子 `predicate` 与 **复合 `components`** / 可选 2D `axis_signs`）；代码侧为 `relations: List[RelationV0]`，本阶段以 **写入 `predicate`/`components`/`axis_signs`/`source`/`evidence`** 为主，必要时在 `aux` 记录过滤日志。

@@ -1,7 +1,7 @@
 # 方案设计（Design）：2D 关系增强（image_plane）
 
 > 目录：`metadata/plans/2026-04-16_0300_metadata_next/`  
-> 状态：**讨论稿** — 与 `metadata/docs/metadata_spec_v0_zh.md` v0 对齐；**输入侧格式本阶段不冻结为唯一 schema**，通过 **adapter + 归一化层 + 过滤策略** 收敛到统一 metadata。
+> 状态：**已定稿（实现以本文为准）** — 与 `metadata/docs/metadata_spec_v0_zh.md` v0 对齐；**输入侧格式本阶段不冻结为唯一 schema**，由 **adapter** 将上游转为 **`MetadataV0`**；**enrich 与 adapter 解耦**，仅在 `MetadataV0` 上补全 `relations` 等（见 §2.2、§7）。
 
 ---
 
@@ -30,7 +30,8 @@
 
 ## 2. 最小输入契约（与上游的接口）
 
-> 实现上建议：`RawSample`（adapter 输出）→ `normalize_objects()` → `ObjectV0` 列表 → `pairwise_geometry()` → `RelationV0` 列表。
+> **Adapter**：只负责把上游数据 **转换成合法的 `MetadataV0`**（含 `objects` 等），**不包含** 2D 关系计算逻辑。  
+> **Enrich**：输入 **`MetadataV0`**，在 **同一数据结构**上写入/覆盖 `relations`（及 `aux.enrich_2d` 等），**不依赖**具体 adapter 类名；可在 CLI 管线中置于 adapter 之后调用，但二者 **模块级解耦**。
 
 **最小字段（逻辑上必需）**
 
@@ -48,14 +49,14 @@
 ### 2.2 多目标 grounding、一实例一几何、框点互斥（已定）
 
 - **一个框或一个点 ↔ 一个物体**：多目标 grounding 时，同一 **label/text** 可对应 **多个框或多个点**；每出现一个框或一个点就 **展开为一个 `ObjectV0`**（各自稳定的 `object_id`），**不**把多框合成一个检测框。
-- **框 / 点互斥**：在**同一条 grounding 展开路径**上，**要么只用框、要么只用点**，**不同时**写入同一物体的 `bbox_xyxy_norm_1000` 与 `point_uv_norm_1000`。若上游混给，adapter 须在归一化前 **二选一**（策略可配置：优先框、或优先点、或报错），并在 `aux`/`provenance` 中记录取舍。
+- **框 / 点互斥**：在**同一条 grounding 展开路径**上，**要么只用框、要么只用点**，**不同时**写入同一物体的 `bbox_xyxy_norm_1000` 与 `point_uv_norm_1000`。若上游对**同一物体实例**混给框+点，**adapter 在生成 `MetadataV0` 时须报错退出**（**已定**：不采用优先框/优先点静默取舍）。`enrich` 入口可对已存在 `MetadataV0` 做防御性校验，发现混用同样报错。
 - **与 spec §3.3.1 的关系**：规范中「框与点长度一致则配对」适用于**同时提供**的两模态；本设计 **收紧为互斥**，不再对同一物体做框点配对。
 - **重叠**：不在输入层做 NMS；交给 **§4** 在物体级与关系对级做可解释过滤。
 
 ### 2.3 「多个物体 / 重叠」在输入侧的解读
 
 - **多个物体**：多条 `Object` 或同一 label 多几何展开 → 多个 `ObjectV0`（见 §3）。
-- **重叠框**：保留为多个 object；是否参与关系边由 **§4.2**（如 `ambiguous_iou`）决定，**不合并框**。
+- **重叠框**：保留为多个 object；是否参与关系边由 **§4.2** 写死的 IoU/近中心规则决定，**不合并框**。
 
 ---
 
@@ -104,8 +105,8 @@
 - **单原子 vs 复合（已定）**：
   - **仅水平轴显著**（竖直为 tie）：只输出 **`predicate`** ∈ {left, right}（及可选 `components: ["left"]` 等自洽形式）。
   - **仅竖直轴显著**：只输出 **`predicate`** ∈ {above, below}。
-  - **两轴均显著**：输出 **`components: [水平原子, 垂直原子]`**（§3 顺序约定），`predicate` 取 **主原子**（`|delta_u|` 与 `|delta_v|` 较大侧；若比率在 `tie_ratio_band` 内则按配置 **丢弃该对** 或 **降级为单轴** — 见 §7 微调）。
-- **对称去重**：单原子边按对向等价去重（如已存在语义上的 `A left B`，不再输出 `B right A`）。**复合边**以 **`components` 排序后的 tuple** 与 anchor/target 参与去重；对向复合（如 A 相对 B 为 `["left","above"]`，B 相对 A 为 `["right","below"]`）是否双写由配置决定，**默认只保留 anchor→target 一条**（与单轴策略一致）。
+  - **两轴均显著**：输出 **`components: [水平原子, 垂直原子]`**（§3 顺序约定），`predicate` 取 **主原子**（`|delta_u|` 与 `|delta_v|` 较大侧）。若两轴幅度比率落入实现内 **「平局带」**（代码常量，不可配置），**丢弃该有序对**（保守，不降级为单轴）。
+- **对称去重（写死）**：全组合遍历时对无序对 `{A,B}` **只产一条**有向边（例如固定 **字典序较小的 `object_id` 为 anchor**）；单原子与复合均适用。不引入「是否双写」配置项。
 - **重叠度过高或中心过近（写死）**：**不作可配置开关**。若 **两物体 bbox IoU 高于代码内定常量**，**或** **两物体代表点（框中心或点坐标）在归一化平面上的距离低于代码内定常量**，则 **直接丢弃该有序对**（不参与谓词计算）。`aux` 中记录丢弃原因（如 `high_iou`、`near_center`）即可。阈值仅在实现里维护，调参若需暴露再单开一轮设计。
 
 ### 4.3 质量与可追溯
@@ -122,13 +123,12 @@ raw = adapter.load(sample_source)  # 输入格式未冻结
 objs = normalize_objects(raw, coord_policy)
 objs = filter_objects(objs, object_filters)
 rels = []
-for (a, t) in ordered_pairs(objs):   # 顺序策略可配置：全组合 / 仅不同类 / 等
+for (a, t) in ordered_pairs(objs):   # 首轮写死：全组合经对称规则压成无序对一条有向边
     if filter_pair(a, t, pair_filters):
         continue
     rel = compute_relation_image_plane(rep_point(a), rep_point(t), rules)  # 单原子或带 components
     if rel is not None:
         rels.append(rel)
-rels = dedupe_symmetric(rels)
 attach_aux_enrich_stats(...)
 ```
 
@@ -142,18 +142,20 @@ attach_aux_enrich_stats(...)
 
 ---
 
-## 7. 未决问题（需你确认）
+## 7. 已定决策摘要（原未决项收口）
 
-1. ~~**同一文本多个 bbox / NMS**~~ **已定**：**一框或一点对应一个物体**；多 label 多几何则 **展开多 `ObjectV0`**；**框点互斥**；**不做 NMS**。上游 `count` 可用于一致性校验（可选），**不**用于合并框。
-2. ~~**单轴 vs 复合**~~ **已定**：双轴显著时用 **`components`** 表达复合（左上/右下等）；单轴仅用 **`predicate`**。待微调：`|du|≈|dv|` 时 **丢弃对** 还是 **强制降为单轴**（配置项 `tie_ratio_band`）。
-3. **第一轮交付形态**：优先 **库函数 + 单测**（`openspatial_metadata.enrich.relation2d`），还是同时接 **CLI 子命令**（如 `openspatial-metadata enrich-2d --config ...`）？
-4. **与 adapter 的关系**：2D enrich 是 **PassthroughAdapter 之后的一步**，还是 **新 adapter 接口**（`enrich(sample: MetadataV0) -> MetadataV0`）？
-5. **上游混给框+点**：adapter 二选一策略默认 **优先框**、**优先点** 还是 **strict 报错**？
+1. **多 bbox / NMS**：一框/一点一物体；展开多 `ObjectV0`；**不做 NMS**。
+2. **单轴 vs 复合**：双轴显著 → **`components`**；单轴 → **`predicate`**；**平局带内丢弃该对**（实现常量）。
+3. **交付形态**：**首轮仅库 + 单测**（如 `openspatial_metadata.enrich.relation2d`）；**不接新 CLI 子命令**（与 CLI 的串接留待后续若需要再开 plan）。
+4. **与 adapter**：**解耦** — adapter 只做 **→ `MetadataV0`**；enrich 只做 **`MetadataV0` → 补全 `relations` 等**，**不是** adapter 子类、**不**新增 `enrich()` 作为 adapter 接口；管线顺序上可为「adapter 后调用 enrich 函数」。
+5. **框+点混用**：**报错**（adapter 生成阶段；enrich 可防御性再校验）。
+
+**仍可在实现中微调、无需再开 design 的**：物体级过滤各阈值的默认数值、`aux.enrich_2d` 键名细粒度；若与本文冲突须回写 design。
 
 ---
 
 ## 8. 文档与实现对齐清单（design 对齐后执行）
 
-- `metadata/docs/metadata_spec_v0_zh.md` §4.1 已与 **§2.3** 对齐补充 `components` / 2D `axis_signs`；后续若再改字段名须同步。
-- `metadata/docs/config_yaml_zh.md` / `README.md`：增加 **enrich 配置节**（实现阶段）。
-- `plan.md` / `test_plan.md`：在 §7 确认后编写任务拆解与黄金向量测试表。
+- `metadata/docs/metadata_spec_v0_zh.md` §4.1 已与 **§2.3** 对齐；字段名变更须同步。
+- `metadata/docs/config_yaml_zh.md` / `README.md`：若 enrich 暴露 YAML 则增一节；**首轮仅代码常量 + 可选函数参数**时可只更新 README「库 API」一句。
+- `plan.md` / `test_plan.md`：随本轮实现勾选。
