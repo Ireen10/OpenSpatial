@@ -76,9 +76,9 @@ class TestFramework(unittest.TestCase):
 
     def test_cli_multi_jsonl_shards_separate_outputs(self):
         """
-        One split may list multiple JSONL shards. CLI processes each file sequentially
-        (``num_workers`` parallel is not implemented yet) and writes one ``.out.jsonl``
-        per input (1:1 by stem), with separate checkpoints under ``output_root/.checkpoints/``.
+        One split may list multiple JSONL shards. With default ``num_workers: 0`` (and no
+        ``--num-workers``), the split runs sequentially and writes one ``.out.jsonl`` per
+        input (1:1 by stem), with separate checkpoints under ``output_root/.checkpoints/``.
         """
         from openspatial_metadata.cli import main
 

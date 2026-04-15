@@ -15,6 +15,7 @@
 - **与 CLI 的关系**：
   - `--output-root` 若指定，则**覆盖** global 中的 `output_root`。
   - `--resume` 为真时，与 global 中的 `resume` **逻辑或**：任一为真即按续跑处理。
+  - `--num-workers` 若大于 `0`，则**覆盖** global 的 `num_workers`；若为 `0`（默认），则沿用 global 的 `num_workers`。
 
 ### Dataset Config（数据集）
 
@@ -32,9 +33,9 @@
 | `output_root` | string | `metadata_out` | 输出根目录。CLI `--output-root` 可覆盖。其下会按 `数据集名 / split 名` 建子目录。 |
 | `scale` | int | `1000` | 归一化坐标刻度（与 metadata v0 中 `coord_scale` 等概念对齐）；当前 CLI 主流程中未强依赖，供后续与工具函数使用。 |
 | `batch_size` | int | `1000` | JSONL 写出时**攒批条数**：每满一批写盘并更新 checkpoint（JSONL）。 |
-| `num_workers` | int | `0` | 计划用于**按输入文件**并行；**当前 CLI 尚未实现并行**，保留字段。 |
+| `num_workers` | int | `0` | 与 CLI `--num-workers` 合并得到**基础并行度**，再与展开后的输入文件数、硬顶 `32` 取最小值得到有效并行度 `effective`（见下文「并行与 `num_workers`」）。`effective <= 1` 时不创建线程池，整段 split 顺序执行。 |
 | `resume` | bool | `false` | 为 `true` 时启用 checkpoint **续跑**（与 CLI `--resume` 合并为「任一为真即续跑」）。 |
-| `strict` | bool | `true` | 计划用于遇错即停等策略；**当前 CLI 尚未读取该字段**，保留字段。 |
+| `strict` | bool | `true` | **遇错即停**（本轮仅支持 `true`）：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。CLI **不提供** `strict=False`。 |
 
 允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。
 
@@ -91,12 +92,26 @@
 3. **普通路径**：无通配时，按路径字符串使用（相对路径即相对 cwd）。  
 4. 列表内展开结果会**按顺序去重**。
 
+> **提示（Windows）**：`inputs` 中含 `*` 的 glob 依赖当前工作目录下的 `Path.glob` 解析；若遇到「展开为空」或路径怪异，请改用**显式文件列表**或**绝对路径字面量**（逗号分行），避免依赖对「绝对路径 + 通配」的跨平台差异。
+
+---
+
+## 并行与 `num_workers`（`ThreadPoolExecutor`）
+
+- **实现方式**：仅 **`ThreadPoolExecutor`**（文件级任务）；**不**使用 `ProcessPoolExecutor`。
+- **有效并行度** `effective`：记 CLI 解析值为 `cli_n`（`--num-workers`，默认 `0` 表示不覆盖）、global 为 `g_n`、`F = len(展开后的输入文件)`。则  
+  `raw = cli_n if cli_n > 0 else g_n`，再 `effective = min(raw, F, 32)`（硬顶 `32` 防止过量线程）。  
+  若 `effective <= 1`，该 split **整段走顺序逻辑**（与旧行为一致）。
+- **`jsonl`**：`effective > 1` 时，**每个输入文件**一个任务，仍各自 **1:1** 输出与**按文件**的 checkpoint（与顺序模式语义一致，仅调度并发不同）。
+- **`json_files`**：`effective > 1` 时，worker 仅负责**读入单文件 JSON** 并构造 `aux.record_ref`；**主线程**负责攒 `batch_size`、写 `part-*.jsonl`，且 **仅在 flush 成功之后** 对本批涉及的源文件写入 `done` checkpoint。**输出行序不保证**与 YAML 中 `inputs` 列表一致，但每行的 `aux.record_ref.input_file` 可追溯到真实路径。
+- **失败与收尾**：任一线程任务失败 → `shutdown(wait=True, cancel_futures=True)` → stderr 含输入路径与异常 → **进程退出码 1**。`json_files` 并行路径在退出前若内存中仍有未满批的已读记录，会先 **flush + checkpoint** 再退出，避免已成功的 worker 结果丢失。
+
 ---
 
 ## `input_type` 与输出布局（当前 CLI 行为摘要）
 
 - **`jsonl`**：对每个展开后的输入文件 **1:1** 生成 `{输入文件主名}.out.jsonl`，写在 `{output_root}/{dataset}/{split}/` 下。Checkpoint 记录 `next_input_index`（按行）。  
-- **`json_files`**：将多个单文件 JSON 聚合为 `part-000000.jsonl` 等；每个输入文件 checkpoint 标记 `done`。
+- **`json_files`**：将多个单文件 JSON 聚合为 `part-000000.jsonl` 等；每个输入文件在 **对应记录已成功写入某 part 且 flush 完成后** checkpoint 标记 `done`（顺序与并行路径一致）。
 
 ---
 
@@ -142,8 +157,11 @@ openspatial-metadata \
   --config-root <目录或单个 dataset yaml> \
   [--global-config <global yaml>] \
   [--output-root <覆盖 output_root>] \
-  [--resume]
+  [--resume] \
+  [--num-workers <int>]
 ```
+
+`--num-workers`：`0`（默认）表示使用 global 的 `num_workers`；`>0` 时覆盖 global，再与文件数、`32` 取 `min` 得到有效并行度。
 
 配置校验入口：`load_global_config` / `load_dataset_config`（YAML → Pydantic）；适配器校验：`resolve_adapter`。
 

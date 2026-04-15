@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .config.loader import (
     discover_dataset_configs,
@@ -14,9 +16,22 @@ from .config.loader import (
 )
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 
+PARALLEL_WORKERS_CAP = 32
+
+
+def effective_parallel_workers(cli_n: int, global_n: int, file_count: int, cap: int = PARALLEL_WORKERS_CAP) -> int:
+    """
+    Plan §num_workers: effective = cli_n if cli_n > 0 else global_n; then min(effective, F, cap).
+    Values <= 1 mean no thread pool (sequential).
+    """
+    if file_count <= 0:
+        return 0
+    raw = cli_n if cli_n > 0 else global_n
+    raw = max(0, raw)
+    return min(raw, file_count, cap)
+
 
 def _checkpoint_path(output_root: Path, input_file: str) -> Path:
-    # small stable filename
     import hashlib
 
     h = hashlib.md5(input_file.encode("utf-8")).hexdigest()  # nosec: non-crypto usage
@@ -45,6 +60,7 @@ def _process_jsonl_file(
     strict: bool,
     output_root: Path,
 ) -> None:
+    del strict  # reserved for future per-record error policy
     ckpt_path = _checkpoint_path(output_root, str(input_path))
     ckpt = _read_checkpoint(ckpt_path) if resume else None
     next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
@@ -54,7 +70,6 @@ def _process_jsonl_file(
         for record, ref in iter_jsonl(input_path):
             if ref.input_index < next_idx:
                 continue
-            # passthrough; later replace by adapter/enrich pipeline
             out = dict(record)
             out.setdefault("aux", {})
             out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
@@ -78,45 +93,147 @@ def _process_jsonl_file(
             )
 
 
-def _process_single_json_files(
+def _process_jsonl_files_parallel(
+    files: List[Path],
+    out_dir: Path,
+    *,
+    effective: int,
+    batch_size: int,
+    resume: bool,
+    strict: bool,
+    output_root: Path,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ex = ThreadPoolExecutor(max_workers=effective)
+    futures = {}
+    try:
+        for ip in files:
+            op = out_dir / (ip.stem + ".out.jsonl")
+            fut = ex.submit(
+                _process_jsonl_file,
+                ip,
+                op,
+                batch_size=batch_size,
+                resume=resume,
+                strict=strict,
+                output_root=output_root,
+            )
+            futures[fut] = ip
+        for fut in as_completed(futures):
+            ip = futures[fut]
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001 — surface to user under strict
+                print(f"[openspatial-metadata] JSONL worker failed: {ip}\n{exc!r}", file=sys.stderr)
+                ex.shutdown(wait=True, cancel_futures=True)
+                sys.exit(1)
+    finally:
+        ex.shutdown(wait=True, cancel_futures=False)
+
+
+def _read_single_json_file_record(ip: Path) -> Dict:
+    (record, ref) = next(iter_json_file(ip))
+    out = dict(record)
+    out.setdefault("aux", {})
+    out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+    return out
+
+
+def _flush_json_files_buffer_with_checkpoints(
+    buffer: List[Dict],
+    out_dir: Path,
+    part_idx: int,
+    output_root: Path,
+) -> int:
+    """Write one part-*.jsonl and mark done checkpoint for each record's source file."""
+    if not buffer:
+        return part_idx
+    out_path = out_dir / f"part-{part_idx:06d}.jsonl"
+    with JsonlWriter(out_path, append=False) as w:
+        w.write_records(buffer)
+        w.flush()
+    for rec in buffer:
+        src = rec.get("aux", {}).get("record_ref", {}).get("input_file")
+        if src:
+            _write_checkpoint_atomic(
+                _checkpoint_path(output_root, str(src)),
+                {"input_file": str(src), "done": True, "errors_count": 0},
+            )
+    return part_idx + 1
+
+
+def _process_json_files_sequential(
     input_files: List[Path],
-    output_dir: Path,
+    out_dir: Path,
     *,
     batch_size: int,
     resume: bool,
     output_root: Path,
 ) -> None:
-    out_dir = output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-
     part_idx = 0
     buffer: List[Dict] = []
-
-    def flush_part() -> None:
-        nonlocal part_idx, buffer
-        if not buffer:
-            return
-        out_path = out_dir / f"part-{part_idx:06d}.jsonl"
-        with JsonlWriter(out_path, append=False) as w:
-            w.write_records(buffer)
-            w.flush()
-        buffer = []
-        part_idx += 1
-
     for ip in input_files:
         ckpt_path = _checkpoint_path(output_root, str(ip))
         ckpt = _read_checkpoint(ckpt_path) if resume else None
         if ckpt and ckpt.get("done") is True:
             continue
-        (record, ref) = next(iter_json_file(ip))
-        out = dict(record)
-        out.setdefault("aux", {})
-        out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-        buffer.append(out)
-        _write_checkpoint_atomic(ckpt_path, {"input_file": str(ip), "done": True, "errors_count": 0})
+        rec = _read_single_json_file_record(ip)
+        buffer.append(rec)
         if len(buffer) >= batch_size:
-            flush_part()
-    flush_part()
+            part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+            buffer.clear()
+    if buffer:
+        _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+
+
+def _process_json_files_parallel(
+    input_files: List[Path],
+    out_dir: Path,
+    *,
+    effective: int,
+    batch_size: int,
+    resume: bool,
+    output_root: Path,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pending: List[Path] = []
+    for ip in input_files:
+        ckpt_path = _checkpoint_path(output_root, str(ip))
+        ckpt = _read_checkpoint(ckpt_path) if resume else None
+        if ckpt and ckpt.get("done") is True:
+            continue
+        pending.append(ip)
+    if not pending:
+        return
+
+    part_idx = 0
+    buffer: List[Dict] = []
+    ex = ThreadPoolExecutor(max_workers=effective)
+    futures = {}
+    try:
+        for ip in pending:
+            futures[ex.submit(_read_single_json_file_record, ip)] = ip
+        for fut in as_completed(futures):
+            ip = futures[fut]
+            try:
+                rec = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                if buffer:
+                    part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+                    buffer.clear()
+                print(f"[openspatial-metadata] json_files worker failed: {ip}\n{exc!r}", file=sys.stderr)
+                ex.shutdown(wait=True, cancel_futures=True)
+                sys.exit(1)
+            buffer.append(rec)
+            if len(buffer) >= batch_size:
+                part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+                buffer.clear()
+        if buffer:
+            _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+            buffer.clear()
+    finally:
+        ex.shutdown(wait=True, cancel_futures=False)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -125,7 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--global-config", default=None, help="Optional global.yaml with defaults.")
     p.add_argument("--output-root", default=None, help="Override output root (otherwise from global config).")
     p.add_argument("--resume", action="store_true", help="Resume from checkpoints.")
-    p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel).")
+    p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel); 0 = use global.yaml num_workers.")
     return p
 
 
@@ -135,6 +252,8 @@ def main(argv=None) -> None:
     output_root = Path(args.output_root or g.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
+    cli_workers = args.num_workers
+
     cfg_paths = discover_dataset_configs(args.config_root)
     for cfg_path in cfg_paths:
         ds = load_dataset_config(cfg_path)
@@ -143,27 +262,48 @@ def main(argv=None) -> None:
             files = [Path(p) for p in expand_inputs(split.inputs)]
             out_dir = output_root / ds.name / split.name
             out_dir.mkdir(parents=True, exist_ok=True)
+            eff = effective_parallel_workers(cli_workers, g.num_workers, len(files))
 
             if split.input_type == "jsonl":
-                # 1:1 file mapping
-                for ip in files:
-                    op = out_dir / (ip.stem + ".out.jsonl")
-                    _process_jsonl_file(
-                        ip,
-                        op,
+                if eff > 1:
+                    _process_jsonl_files_parallel(
+                        files,
+                        out_dir,
+                        effective=eff,
                         batch_size=g.batch_size,
                         resume=args.resume or g.resume,
                         strict=g.strict,
                         output_root=output_root,
                     )
+                else:
+                    for ip in files:
+                        op = out_dir / (ip.stem + ".out.jsonl")
+                        _process_jsonl_file(
+                            ip,
+                            op,
+                            batch_size=g.batch_size,
+                            resume=args.resume or g.resume,
+                            strict=g.strict,
+                            output_root=output_root,
+                        )
             elif split.input_type == "json_files":
-                _process_single_json_files(
-                    files,
-                    out_dir,
-                    batch_size=g.batch_size,
-                    resume=args.resume or g.resume,
-                    output_root=output_root,
-                )
+                if eff > 1:
+                    _process_json_files_parallel(
+                        files,
+                        out_dir,
+                        effective=eff,
+                        batch_size=g.batch_size,
+                        resume=args.resume or g.resume,
+                        output_root=output_root,
+                    )
+                else:
+                    _process_json_files_sequential(
+                        files,
+                        out_dir,
+                        batch_size=g.batch_size,
+                        resume=args.resume or g.resume,
+                        output_root=output_root,
+                    )
             else:
                 raise ValueError(f"Unknown input_type: {split.input_type}")
 

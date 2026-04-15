@@ -7,15 +7,17 @@
 **已实现（本阶段工程框架）：**
 
 - 数据集配置：`configs/` 下一数据集一 YAML；`openspatial-metadata` 支持 `--config-root`（目录或单个文件）。
-- JSONL：按输入文件 1:1 写出 `.out.jsonl`；checkpoint（`next_input_index`）。
-- 单 JSON 多文件：聚合成 `part-*.jsonl`；checkpoint（`done`）。
+- JSONL：按输入文件 1:1 写出 `.out.jsonl`；checkpoint（`next_input_index`）；可选**文件级**并行（`global.num_workers` / `--num-workers`，`ThreadPoolExecutor`）。
+- 单 JSON 多文件：聚合成 `part-*.jsonl`；checkpoint（`done`）；可选并行（worker 只读 JSON，**主线程单写者**，flush 后写 checkpoint）。
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
 - I/O：`io/json.py`；占位适配器：`adapters/passthrough.py`；归一化：`utils/normalize.py`。
 
 **仍为占位 / 未接入 CLI（与 `plans/`、wiki 文档对齐的后续工作）：**
 
 - OpenSpatial Parquet 行 ↔ metadata 的专用转换、metadata / annotation 的 Parquet 导出（`pyarrow`）。
-- 空间关系 enrich（2D/3D）、可视化、严格 `strict` 错误策略与 `--num-workers` 并行等。
+- 空间关系 enrich（2D/3D）、可视化等。
+
+**已实现（并行子集，见 `metadata/docs/config_yaml_zh.md`）：** `num_workers` / `--num-workers` 文件级线程并行、`strict=True` 遇错即停与 stderr / 退出码 1；**未实现** `ProcessPoolExecutor` 与 `strict=False`。
 
 ## 环境要求
 
@@ -49,6 +51,12 @@ python -m openspatial_metadata.cli --help
 
 ```bash
 openspatial-metadata --config-root metadata/configs/datasets/demo_dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo
+```
+
+并行示例（覆盖 global 中的 `num_workers`）：
+
+```bash
+openspatial-metadata --config-root metadata/configs/datasets/demo_dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo --num-workers 4
 ```
 
 ## 源码布局
@@ -109,4 +117,5 @@ python -m unittest discover -s metadata/tests -p "test_*.py"
 - 规格与说明：`metadata/docs/`（如 `metadata_spec_v0_zh.md`）。
 - **Global / Dataset YAML 配置字段说明**：`metadata/docs/config_yaml_zh.md`。
 - **文档如何与代码同步（合并前自检）**：`metadata/docs/docs_sync_convention_zh.md`。
+- **子项目全局进展 / 里程碑**（每完整一轮：设计→计划→测试计划→开发→**自测通过**→`change_log` 后再更新）：`metadata/docs/project_progress_zh.md`。
 - 本阶段设计与测试方案：`metadata/plans/2026-04-14_0100_metadata_framework/`。

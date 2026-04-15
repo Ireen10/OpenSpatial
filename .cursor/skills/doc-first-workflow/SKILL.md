@@ -13,14 +13,15 @@ description: Enforces a documentation-first engineering workflow (Design → Exe
    - Align `test_plan.md` → only then implement code
    - `test_plan.md` must explicitly map test items to the planned functional points in `plan.md`.
 2. **No implementation before aligned test plan**: Do not modify code until the user confirms alignment on the required docs for the current change.
-2. **Timestamped directory per change**: Every feature/change gets its own directory: `metadata/plans/YYYY-MM-DD_HHMM_<topic>/` (or the project’s chosen plans root).
-3. **Artifacts (produced sequentially)**:
+3. **Timestamped directory per change**: Every feature/change gets its own directory: `metadata/plans/YYYY-MM-DD_HHMM_<topic>/` (or the project’s chosen plans root).
+4. **Artifacts (produced sequentially)**:
    - `design.md` (first)
    - `plan.md` (second, only after design alignment)
    - `test_plan.md` (third, only after plan alignment)
    - `change_log.md` (written at the end of the change, after implementation/testing; not upfront)
-4. **Changes always recorded**: For every subsequent change/new feature, create a new timestamped directory; never overwrite prior change docs.
-5. **Self-acceptance testing is mandatory**: After implementation, the agent must run the tests specified in `test_plan.md` (or the `bugfix_brief.md` test steps for tiny bugfixes). Do not consider the change “done” until the agreed tests pass; if tests fail, fix and rerun.
+5. **Changes always recorded**: For every subsequent change/new feature, create a new timestamped directory; never overwrite prior change docs.
+6. **Self-acceptance testing is mandatory**: After implementation, the agent must run the tests specified in `test_plan.md` (or the `bugfix_brief.md` test steps for tiny bugfixes). Do not consider the change “done” until the agreed tests pass; if tests fail, fix and rerun.
+7. **Cross-cutting progress (metadata subproject)**: When the work lands under `metadata/`, update **`metadata/docs/project_progress_zh.md` only once per completed doc-first cycle**—after **Design → Plan → Test plan → implementation → self-tests pass → `change_log.md`**. Do **not** update it for intermediate milestones (e.g. docs-only steps). See `metadata/docs/docs_sync_convention_zh.md`.
 
 ## Fast-track for tiny bugfixes (still doc-first)
 
@@ -70,16 +71,18 @@ If any condition fails, use the full 4-doc workflow.
    - Only after Design alignment. Stop and align again.
 5. **Write `test_plan.md`**
    - Only after Plan alignment. Ensure every test item traces back to `plan.md`. Stop and align again.
-4. **Implement**
+6. **Implement**
    - Only after Test Plan alignment.
    - Make minimal, well-scoped changes.
    - Keep changes consistent with the approved docs.
-6. **Test**
+7. **Test**
    - **Execute the approved test plan** (or the brief test steps).
    - If tests are described as commands/scripts, run them.
    - If tests require manual verification, follow the checklist and record outcomes.
-7. **Write `change_log.md`**
+8. **Write `change_log.md`**
    - Record what changed, what was tested, results, and any deviations.
+9. **Update cross-cutting progress (metadata only)**
+   - After step 8, if the change touches `metadata/` **and** this is the end of a full cycle (step 7 tests passed), update **`metadata/docs/project_progress_zh.md`** once. Skip if the cycle stopped before implementation/self-test (docs-only work in progress).
 
 ## Output conventions
 
@@ -87,4 +90,5 @@ If any condition fails, use the full 4-doc workflow.
 - Use consistent headings.
 - Avoid time-sensitive statements.
 - When a decision is made, record it in `design.md` (or `bugfix_brief.md`) and `change_log.md`.
+- Doc hygiene for `metadata/`: follow **`metadata/docs/docs_sync_convention_zh.md`** (plan template checklists include `project_progress_zh.md`).
 

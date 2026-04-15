@@ -24,6 +24,7 @@
 | `schema/metadata_v0.py`、校验逻辑 | `metadata/docs/metadata_spec_v0_zh.md`（及 wiki 若仍维护） |
 | `tests/`、fixtures、推荐命令 | `metadata/plans/.../test_plan.md`、`metadata/README.md` |
 | 新占位 / 已实现某能力 | 对应 `metadata/plans/.../plan.md` 与收尾 **`change_log.md`** |
+| **完整一轮 doc-first 收束**（设计→计划→测试计划→**开发**→**自测通过**→`change_log.md` 之后；**非**仅写文档的中间节点） | **`metadata/docs/project_progress_zh.md`**（全局进展、下一步 TODO、活跃计划索引） |
 
 新增长篇说明时：优先放进 **`metadata/docs/`**，在 **`metadata/README.md`** 的「更多文档」里加一条链接即可。
 
@@ -35,7 +36,8 @@
 
 1. 在 **`plan.md` 的交付物清单**里显式列出要改的文档路径（模板已预留「文档同步」小节）。  
 2. 在 **`test_plan.md`** 里写清如何验证新行为；若文档声称与行为一致，可把「对照某节文档」作为一条检查项。  
-3. 实现并跑通测试后，在 **`change_log.md`** 里写「**文档**：已更新 xxx」或「**文档**：无对外行为变更，未改」——**二选一**，避免漏想。
+3. 实现并跑通测试后，在 **`change_log.md`** 里写「**文档**：已更新 xxx」或「**文档**：无对外行为变更，未改」——**二选一**，避免漏想。  
+4. **整轮收束（与上面同一粒度）**：在 **`change_log.md` 已写好**且 **`test_plan` 约定自测已通过** 之后，再更新 **`metadata/docs/project_progress_zh.md`**（当前阶段、已完成表、下一步 TODO、活跃计划目录）。**不要**在仅完成 design/plan/test_plan 文档、尚未开发/自测时更新该文件。
 
 琐碎 bugfix 仍可用 `bugfix_brief.md`，但若动了对外 YAML/CLI 语义，应**升格**为完整流程或至少在 brief 里写一句文档是否要动。
 
@@ -48,6 +50,7 @@
 - [ ] `cli.py` 与 README / config 文档中的命令与参数是否一致
 - [ ] 若删除或实现占位，文档中是否已去掉「未实现」表述或改为新语义
 - [ ] `change_log.md` 是否记录本次文档变更或声明「无文档变更」
+- [ ] `metadata/docs/project_progress_zh.md` 是否在**本完整轮次**（含自测与 `change_log.md`）结束时已更新（或声明本轮不改总览、理由）
 ```
 
 ---
@@ -65,4 +68,5 @@
 
 - 工作流技能：`.cursor/skills/doc-first-workflow/SKILL.md`  
 - 计划 / 变更模板：`metadata/plans/templates/plan.md`、`metadata/plans/templates/change_log.md`  
-- YAML 配置说明：`metadata/docs/config_yaml_zh.md`
+- YAML 配置说明：`metadata/docs/config_yaml_zh.md`  
+- 全局进展与里程碑：`metadata/docs/project_progress_zh.md`
