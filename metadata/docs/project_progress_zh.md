@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-**adapter→enrich→写出** 的最小端到端链路已跑通（dataset.yaml 可控 2D enrich / per-dataset 输出目录 / meta 注入）；后续重点是将真实数据集规模化接入与补齐 3D enrich、严格/容错策略与 CI。
+**adapter→enrich→写出** 的最小端到端链路已跑通，并补齐了可批量跑的工程细节（绝对路径 glob、断点续传按 dataset/split 隔离、tqdm 进度条默认开启、dataset_path 追溯）；后续重点是规模化接入真实数据集与补齐 3D enrich、严格/容错策略与 CI。
 
 ---
 
@@ -15,6 +15,9 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-16** | **断点续传体验优化**：checkpoint 目录改为按 `output_root/{dataset}/{split}/.checkpoints` 隔离，支持只重跑某个 dataset/split；兼容读取旧的 `output_root/.checkpoints`（只读 fallback）；新增 UT 覆盖并通过。 |
+| **2026-04-16** | **CLI 可用性/可观测性**：`inputs` 支持绝对路径 glob（修复 `Path.glob` 对非相对 pattern 的限制）；进度展示默认使用 `tqdm`（多 worker 多进度条，每个 worker/文件一个 bar），若环境无 tqdm 自动回退到 log；仍保留 stderr 日志用于关键事件。 |
+| **2026-04-16** | **schema & 追溯信息**：`dataset.dataset_path` 加入 schema，并由 CLI 自动注入当前 dataset.yaml 路径；`GroundingQAAdapter` 补齐 `objects[].phrase` 与 `queries[].query_type` 默认值（并支持 `ds.meta.query_type` 覆盖）；`ds.meta` 注入时过滤掉 dataset 保留字段避免臃肿；同步更新 wiki 文档对齐 `query_type` 推荐取值。 |
 | **2026-04-15** | **E2E（小样例）**：新增 `GroundingQAAdapter` + CLI 调用 `adapter.convert`；dataset.yaml 支持 `enrich.relations_2d` 并在写出前执行 enrich；输出命名统一为 `*.metadata.jsonl`；支持 dataset.yaml 配置 `output_root`（多数据集隔离输出）；将 dataset.yaml 的 `meta` 注入到输出 `dataset.source` 与 `dataset.meta`；RefCOCO grounding 小样例（1 行 JSONL）可走完整链路并有 E2E 测试覆盖。 |
 | **2026-04-15** | **2D enrich 增强**：增加 containment 过滤（小框被覆盖 ≥70% 跳过），避免“大包小但 IoU 小”场景漏过；并增加“已有 relation triple 则跳过重算”去重逻辑。 |
 | **2026-04-15** | **schema / configs 组织**：`MetadataV0` 增加 `queries`（支持单/多实例与多指代表达）；datasets 配置改为“一数据集一文件夹”（`datasets/*/dataset.yaml`），并更新 loader/测试。 |
@@ -30,6 +33,7 @@
 - [ ] **CI**：在 Linux 上跑 `pytest metadata/tests`（若仓库尚无 workflow，可在 OpenSpatial 根或子项目加一条）。  
 - [ ] **规模化接入真实数据**：为每个真实数据集补齐 `datasets/<name>/dataset.yaml`（含 inputs/glob、output_root、meta、enrich 开关），并补“样例+解析约束”的 plans。  
 - [ ] **3D enrich**：定义 `relations_3d` 的 enrich 入口与实现，打通 `enrich.relations_3d` 开关。  
+- [ ] **严格/容错策略**：落地 `strict` 的 per-record error policy（记录失败样本、统计、可选继续），并补 UT/IT。  
 - [ ] **长期**：`ProcessPoolExecutor`、best-effort（`strict=False`）等 **另开 design 轮次**，不混在本文件旧条目里删除历史。
 
 ---
@@ -38,6 +42,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-16_1205_checkpoint_scoped/` | **已交付**：checkpoint 按 dataset/split 隔离 + 旧位置兼容读取；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-16_0300_metadata_next/` | **已交付（首轮库+测）**：2D enrich；细节见该目录 `change_log.md` |
 | `metadata/plans/2026-04-15_0200_parallel_metadata_cli/` | **已交付**（实现 + 自测 + `change_log.md`；细节见该目录） |
 | `metadata/plans/2026-04-14_0100_metadata_framework/` | **已交付**（框架 v0；细节见该目录内文档与仓库历史） |
