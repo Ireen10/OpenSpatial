@@ -94,10 +94,10 @@ class TestFramework(unittest.TestCase):
     def test_config_loader_discovers_demo(self):
         from openspatial_metadata.config.loader import discover_dataset_configs, load_dataset_config, resolve_adapter
 
-        paths = discover_dataset_configs(Path("metadata/configs/datasets"))
+        paths = discover_dataset_configs(Path("metadata/tests/configs/datasets"))
         self.assertTrue(any(p.replace("\\", "/").endswith("demo_dataset/dataset.yaml") for p in paths))
 
-        ds = load_dataset_config("metadata/configs/datasets/demo_dataset/dataset.yaml")
+        ds = load_dataset_config("metadata/tests/configs/datasets/demo_dataset/dataset.yaml")
         resolve_adapter(ds)
         self.assertEqual(ds.name, "demo_dataset")
 
@@ -109,7 +109,7 @@ class TestFramework(unittest.TestCase):
             out_root = tmp / "out"
             args = [
                 "--config-root",
-                "metadata/configs/datasets/demo_dataset/dataset.yaml",
+                "metadata/tests/configs/datasets/demo_dataset/dataset.yaml",
                 "--global-config",
                 "metadata/configs/global.yaml",
                 "--output-root",

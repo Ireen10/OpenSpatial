@@ -60,13 +60,13 @@ python -m openspatial_metadata.cli --help
 **示例**（在 OpenSpatial 仓库根目录执行；配置里的相对路径相对于**当前工作目录**）：
 
 ```bash
-openspatial-metadata --config-root metadata/configs/datasets/demo_dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo
+openspatial-metadata --config-root metadata/tests/configs/datasets/demo_dataset/dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo
 ```
 
 并行示例（覆盖 global 中的 `num_workers`）：
 
 ```bash
-openspatial-metadata --config-root metadata/configs/datasets/demo_dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo --num-workers 4
+openspatial-metadata --config-root metadata/tests/configs/datasets/demo_dataset/dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo --num-workers 4
 ```
 
 ## 源码布局
