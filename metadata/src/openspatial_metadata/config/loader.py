@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import re
 from dataclasses import dataclass
+from glob import glob
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -47,8 +48,10 @@ def expand_inputs(inputs: Sequence[str]) -> List[str]:
             p = Path(e)
             # glob if it contains wildcard
             if any(ch in e for ch in ["*", "?", "["]):
-                for gp in sorted(Path().glob(e)):
-                    files.append(str(gp))
+                # pathlib.Path.glob() does not support absolute patterns.
+                # Use glob() which supports both relative and absolute patterns.
+                for gp in sorted(glob(e, recursive=True)):
+                    files.append(str(Path(gp)))
             else:
                 files.append(str(p))
     # de-dup while preserving order
