@@ -348,15 +348,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> None:
     args = build_parser().parse_args(argv)
     g = load_global_config(args.global_config)
-    output_root = Path(args.output_root or g.output_root)
-    output_root.mkdir(parents=True, exist_ok=True)
-
     cli_workers = args.num_workers
 
     cfg_paths = discover_dataset_configs(args.config_root)
     for cfg_path in cfg_paths:
         ds = load_dataset_config(cfg_path)
         resolve_adapter(ds)
+        ds_output_root = args.output_root or getattr(ds, "output_root", None) or g.output_root
+        output_root = Path(ds_output_root)
+        output_root.mkdir(parents=True, exist_ok=True)
         (rel2d, rel3d) = _get_enrich_flags(ds)
         if rel3d:
             raise ValueError("relations_3d enrich not implemented")
