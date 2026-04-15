@@ -22,6 +22,10 @@ from .schema.metadata_v0 import MetadataV0
 PARALLEL_WORKERS_CAP = 32
 
 
+def _log(msg: str) -> None:
+    print(f"[openspatial-metadata] {msg}", file=sys.stderr, flush=True)
+
+
 def _make_adapter_factory(
     ds: Any,
     *,
@@ -193,6 +197,7 @@ def _process_jsonl_file(
                 w.write_records(buffer)
                 w.flush()
                 next_idx = ref.input_index + 1
+                _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
                 _write_checkpoint_atomic(
                     ckpt_path,
                     {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0},
@@ -202,6 +207,7 @@ def _process_jsonl_file(
             w.write_records(buffer)
             w.flush()
             next_idx = next_idx + len(buffer)
+            _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
             _write_checkpoint_atomic(
                 ckpt_path,
                 {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0},
@@ -246,6 +252,7 @@ def _process_jsonl_files_parallel(
             ip = futures[fut]
             try:
                 fut.result()
+                _log(f"{ds.name}/{split_name}: done {ip.name}")
             except Exception as exc:  # noqa: BLE001 — surface to user under strict
                 print(f"[openspatial-metadata] JSONL worker failed: {ip}\n{exc!r}", file=sys.stderr)
                 ex.shutdown(wait=True, cancel_futures=True)
@@ -408,6 +415,7 @@ def main(argv=None) -> None:
     cli_workers = args.num_workers
 
     cfg_paths = discover_dataset_configs(args.config_root)
+    _log(f"discovered {len(cfg_paths)} dataset config(s) under {args.config_root}")
     for cfg_path in cfg_paths:
         ds = load_dataset_config(cfg_path)
         resolve_adapter(ds)
@@ -428,6 +436,10 @@ def main(argv=None) -> None:
             out_dir = output_root / ds.name / split.name
             out_dir.mkdir(parents=True, exist_ok=True)
             eff = effective_parallel_workers(cli_workers, g.num_workers, len(files))
+            _log(
+                f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} "
+                f"batch_size={g.batch_size} enrich2d={rel2d} out={out_dir}"
+            )
 
             if split.input_type == "jsonl":
                 if eff > 1:
@@ -447,6 +459,7 @@ def main(argv=None) -> None:
                 else:
                     for ip in files:
                         op = out_dir / (ip.stem + ".metadata.jsonl")
+                        _log(f"{ds.name}/{split.name}: processing {ip}")
                         _process_jsonl_file(
                             ip,
                             op,
@@ -459,6 +472,7 @@ def main(argv=None) -> None:
                             ds=ds,
                             split_name=split.name,
                         )
+                        _log(f"{ds.name}/{split.name}: done {ip.name}")
             elif split.input_type == "json_files":
                 if eff > 1:
                     _process_json_files_parallel(
