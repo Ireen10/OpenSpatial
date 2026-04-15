@@ -11,11 +11,21 @@
 - 单 JSON 多文件：聚合成 `part-*.jsonl`；checkpoint（`done`）；可选并行（worker 只读 JSON，**主线程单写者**，flush 后写 checkpoint）。
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
 - I/O：`io/json.py`；占位适配器：`adapters/passthrough.py`；归一化：`utils/normalize.py`。
+- **2D 关系增强（`image_plane`）**：`enrich.enrich_relations_2d` 在 **`MetadataV0` 副本**上根据框/点代表点计算 `relations`（单原子或 `components` 复合），与 adapter 解耦；详见 `metadata/plans/2026-04-16_0300_metadata_next/design.md`。
 
 **仍为占位 / 未接入 CLI（与 `plans/`、wiki 文档对齐的后续工作）：**
 
 - OpenSpatial Parquet 行 ↔ metadata 的专用转换、metadata / annotation 的 Parquet 导出（`pyarrow`）。
-- 空间关系 enrich（2D/3D）、可视化等。
+- **3D** 关系 enrich、可视化等。
+
+**库用法（2D enrich）**（在已 `pip install -e ./metadata` 的环境中）：
+
+```python
+from openspatial_metadata.enrich import enrich_relations_2d
+from openspatial_metadata.schema.metadata_v0 import MetadataV0
+
+md_out = enrich_relations_2d(metadata)  # 不修改入参，返回新对象
+```
 
 **已实现（并行子集，见 `metadata/docs/config_yaml_zh.md`）：** `num_workers` / `--num-workers` 文件级线程并行、`strict=True` 遇错即停与 stderr / 退出码 1；**未实现** `ProcessPoolExecutor` 与 `strict=False`。
 
@@ -81,6 +91,10 @@ metadata/
     │   └── json.py
     ├── adapters/
     │   └── passthrough.py
+    ├── enrich/
+    │   ├── relation2d.py
+    │   ├── filters.py
+    │   └── constants.py
     └── utils/
         └── normalize.py
 ```

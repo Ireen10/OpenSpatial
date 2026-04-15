@@ -57,8 +57,8 @@
 
 ## 质量门槛（Gate）
 
-- `python -m pytest metadata/tests -q` 全通过（仓库根）。
-- `python -m unittest discover -s metadata/tests -p "test_*.py" -q` 全通过（无 pytest 环境时）。
+- `python -m pytest metadata/tests -q` 全通过（仓库根）。✅
+- `python -m unittest discover -s metadata/tests -p "test_*.py" -q` 全通过（无 pytest 环境时）。✅
 
 **失败定位**：对照 `design.md` §4.2 与实现常量；打印 `aux.enrich_2d`。
 
@@ -66,5 +66,5 @@
 
 ## 文档验收
 
-- [ ] `plan.md` 任务与实现一一对应。
-- [ ] `change_log.md` 已写（整轮末尾）。
+- [x] `plan.md` 任务与实现一一对应。
+- [x] `change_log.md` 已写（整轮末尾）。

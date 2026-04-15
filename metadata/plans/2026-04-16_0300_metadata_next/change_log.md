@@ -1,26 +1,26 @@
-# 变更记录（Change Log）— 占位
+# 变更记录（Change Log）：2D 关系增强（2026-04-16）
 
-> 实现与自测完成后再按 `metadata/plans/templates/change_log.md` 填写本节。**当前目录仅为下一轮计划的文档骨架。**
+## 变更摘要
 
-## 变更记录（Change Log）
+- **新增** `openspatial_metadata.enrich`：`enrich_relations_2d`（`MetadataV0` → 深拷贝后写 `relations`）、物体级过滤（`filters.py`）、与 `coord_scale` 成比例的阈值常量（`constants.py`）。
+- **语义**：`delta_uv = target - anchor`；`above` ⇔ 更小 `v`；无序对仅 **anchor `object_id` 字典序较小** 的一条有向边；IoU 过高 **或** 代表点过近丢弃；双轴显著且落入平局比丢弃；**无 NMS**。
+- **校验**：同一 `ObjectV0` 同时含 bbox 与 point → **`ValueError`**。
+- **测试**：`metadata/tests/test_enrich_relation2d.py`（几何、过滤、IoU/近心、对称、点模式、非变异、scale 缩放）。
 
-### 变更摘要
+## 文档与对外说明
 
-- 本次新增/变更：（实现后填写）
-- 影响范围：
-- 兼容性说明：
+- 已更新：`metadata/README.md`、`metadata/plans/2026-04-16_0300_metadata_next/test_plan.md`（实现勾选）、`metadata/docs/project_progress_zh.md`。
+- **未改** `metadata/docs/config_yaml_zh.md`（首轮无 enrich YAML，与 plan 一致）。
 
-### 文档与对外说明
+## 自测
 
-- 已更新的文档（路径列表）：
-- 或声明：**无**用户可见文档需更新（并简述理由，例如「仅内部重构、对外 YAML/CLI 语义未变」）。
+- `python -m pytest metadata/tests -q`
+- `python -m unittest discover -s metadata/tests -p "test_*.py" -q`
 
-### 与上一版差异
+## 与上一版差异
 
-- 变更点列表：
-- 删除/废弃点：
+- **新增** enrich 包；**未改** CLI 默认行为。
 
-### 迁移与回滚
+## 迁移与回滚
 
-- 迁移步骤（如有）：
-- 回滚步骤：
+- **回滚**：删除 `enrich/` 包与对应测试即可恢复；无 schema 破坏性变更。

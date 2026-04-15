@@ -15,11 +15,11 @@
 
 ## 文档同步（与本变更一并交付）
 
-- [ ] `metadata/docs/config_yaml_zh.md` — **首轮可勾选「无需更新」**（无 global enrich YAML）；若实现阶段引入 YAML 再改。
-- [ ] `metadata/docs/metadata_spec_v0_zh.md` — **无需更新**（除非实现发现与 §4.1 字段不一致）。
-- [ ] `metadata/README.md` — 增加 enrich **库用法**（import 路径 + 一行示例）。
-- [ ] `metadata/plans/2026-04-16_0300_metadata_next/test_plan.md` — 随用例实现勾选。
-- [ ] `metadata/docs/project_progress_zh.md` — **整轮结束**（自测 + `change_log.md`）后更新。
+- [x] `metadata/docs/config_yaml_zh.md` — **无需更新**（首轮无 enrich YAML）。
+- [x] `metadata/docs/metadata_spec_v0_zh.md` — **无需更新**。
+- [x] `metadata/README.md` — enrich 库用法与目录树已更新。
+- [x] `metadata/plans/2026-04-16_0300_metadata_next/test_plan.md` — 已随用例勾选 Gate。
+- [x] `metadata/docs/project_progress_zh.md` — 已更新。
 - [ ] 其他：**无**
 
 ---
