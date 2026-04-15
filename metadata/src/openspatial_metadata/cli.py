@@ -99,6 +99,34 @@ def _apply_enrich_if_enabled(out: Dict, *, relations_2d: bool) -> Dict:
     return md2.dict()
 
 
+def _apply_dataset_meta(out: Dict, *, ds: Any, split_name: str) -> Dict:
+    """
+    Inject dataset config meta into output metadata.
+    - Fills missing dataset.name/version/split
+    - Fills missing dataset.source from ds.meta.source
+    - Stores ds.meta under dataset.meta (extra field) when not already present
+    """
+    if not isinstance(out, dict):
+        return dict(out)
+
+    d = out.get("dataset")
+    if not isinstance(d, dict):
+        d = {}
+        out["dataset"] = d
+
+    d.setdefault("name", getattr(ds, "name", "unknown"))
+    d.setdefault("version", "v0")
+    d.setdefault("split", split_name)
+
+    meta = getattr(ds, "meta", None)
+    if isinstance(meta, dict):
+        if d.get("source") in (None, "") and isinstance(meta.get("source"), str) and meta.get("source"):
+            d["source"] = meta["source"]
+        d.setdefault("meta", meta)
+
+    return out
+
+
 def effective_parallel_workers(cli_n: int, global_n: int, file_count: int, cap: int = PARALLEL_WORKERS_CAP) -> int:
     """
     Plan §num_workers: effective = cli_n if cli_n > 0 else global_n; then min(effective, F, cap).
@@ -141,6 +169,8 @@ def _process_jsonl_file(
     output_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    ds: Any,
+    split_name: str,
 ) -> None:
     del strict  # reserved for future per-record error policy
     ckpt_path = _checkpoint_path(output_root, str(input_path))
@@ -156,6 +186,7 @@ def _process_jsonl_file(
             out = _apply_adapter(adapter, record)
             out.setdefault("aux", {})
             out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+            out = _apply_dataset_meta(out, ds=ds, split_name=split_name)
             out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
             buffer.append(out)
             if len(buffer) >= batch_size:
@@ -188,6 +219,8 @@ def _process_jsonl_files_parallel(
     output_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    ds: Any,
+    split_name: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ex = ThreadPoolExecutor(max_workers=effective)
@@ -205,6 +238,8 @@ def _process_jsonl_files_parallel(
                 output_root=output_root,
                 adapter_factory=adapter_factory,
                 relations_2d=relations_2d,
+                ds=ds,
+                split_name=split_name,
             )
             futures[fut] = ip
         for fut in as_completed(futures):
@@ -224,12 +259,15 @@ def _read_single_json_file_record(
     *,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    ds: Any,
+    split_name: str,
 ) -> Dict:
     (record, ref) = next(iter_json_file(ip))
     adapter = adapter_factory()
     out = _apply_adapter(adapter, record)
     out.setdefault("aux", {})
     out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+    out = _apply_dataset_meta(out, ds=ds, split_name=split_name)
     out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
     return out
 
@@ -266,6 +304,8 @@ def _process_json_files_sequential(
     output_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    ds: Any,
+    split_name: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     part_idx = 0
@@ -275,7 +315,13 @@ def _process_json_files_sequential(
         ckpt = _read_checkpoint(ckpt_path) if resume else None
         if ckpt and ckpt.get("done") is True:
             continue
-        rec = _read_single_json_file_record(ip, adapter_factory=adapter_factory, relations_2d=relations_2d)
+        rec = _read_single_json_file_record(
+            ip,
+            adapter_factory=adapter_factory,
+            relations_2d=relations_2d,
+            ds=ds,
+            split_name=split_name,
+        )
         buffer.append(rec)
         if len(buffer) >= batch_size:
             part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
@@ -294,6 +340,8 @@ def _process_json_files_parallel(
     output_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    ds: Any,
+    split_name: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     pending: List[Path] = []
@@ -312,7 +360,16 @@ def _process_json_files_parallel(
     futures = {}
     try:
         for ip in pending:
-            futures[ex.submit(_read_single_json_file_record, ip, adapter_factory=adapter_factory, relations_2d=relations_2d)] = ip
+            futures[
+                ex.submit(
+                    _read_single_json_file_record,
+                    ip,
+                    adapter_factory=adapter_factory,
+                    relations_2d=relations_2d,
+                    ds=ds,
+                    split_name=split_name,
+                )
+            ] = ip
         for fut in as_completed(futures):
             ip = futures[fut]
             try:
@@ -384,6 +441,8 @@ def main(argv=None) -> None:
                         output_root=output_root,
                         adapter_factory=adapter_factory,
                         relations_2d=rel2d,
+                        ds=ds,
+                        split_name=split.name,
                     )
                 else:
                     for ip in files:
@@ -397,6 +456,8 @@ def main(argv=None) -> None:
                             output_root=output_root,
                             adapter_factory=adapter_factory,
                             relations_2d=rel2d,
+                            ds=ds,
+                            split_name=split.name,
                         )
             elif split.input_type == "json_files":
                 if eff > 1:
@@ -409,6 +470,8 @@ def main(argv=None) -> None:
                         output_root=output_root,
                         adapter_factory=adapter_factory,
                         relations_2d=rel2d,
+                        ds=ds,
+                        split_name=split.name,
                     )
                 else:
                     _process_json_files_sequential(
@@ -419,6 +482,8 @@ def main(argv=None) -> None:
                         output_root=output_root,
                         adapter_factory=adapter_factory,
                         relations_2d=rel2d,
+                        ds=ds,
+                        split_name=split.name,
                     )
             else:
                 raise ValueError(f"Unknown input_type: {split.input_type}")
