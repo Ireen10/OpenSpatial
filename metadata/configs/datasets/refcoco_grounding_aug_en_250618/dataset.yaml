@@ -12,5 +12,5 @@ splits:
   - name: train_small
     input_type: jsonl
     inputs:
-      - "metadata/configs/datasets/refcoco_grounding_aug_en_250618/sample_small.jsonl"
+      - "metadata/configs/datasets/refcoco_grounding_aug_en_250618/*.jsonl"
 
