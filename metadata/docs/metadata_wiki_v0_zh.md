@@ -224,7 +224,7 @@
 |---|---|---|---|
 | `queries[].query_id` | `string` | query 主键（建议稳定） | `"q0"` |
 | `queries[].query_text` | `string` | 指代描述/类别名 | `"the wooden chair"` |
-| `queries[].query_type` | `string?` | 可选：来源或类型（如 `"huashan_annotated"`） | `"huashan_annotated"` |
+| `queries[].query_type` | `string?` | 可选：来源或类型；推荐取值与 spec 对齐：`"single_instance_grounding"` / `"multi_instance_grounding"` / `"3d_grounding"` / `"huashan_annotated"` | `"single_instance_grounding"` |
 | `queries[].candidate_object_ids` | `string[]` | 候选 object_id 列表 | `["chair#0"]` |
 | `queries[].gold_object_id` | `string?` | 若能唯一指向则填 | `"chair#0"` |
 | `queries[].count` | `int?` | 目标数（可用于一致性校验） | `1` |
