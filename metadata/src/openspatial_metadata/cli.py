@@ -153,16 +153,22 @@ def effective_parallel_workers(cli_n: int, global_n: int, file_count: int, cap: 
     return min(raw, file_count, cap)
 
 
-def _checkpoint_path(output_root: Path, input_file: str) -> Path:
+def _checkpoint_key(input_file: str) -> str:
     import hashlib
 
-    h = hashlib.md5(input_file.encode("utf-8")).hexdigest()  # nosec: non-crypto usage
-    return output_root / ".checkpoints" / f"{h}.json"
+    return hashlib.md5(input_file.encode("utf-8")).hexdigest()  # nosec: non-crypto usage
 
 
-def _read_checkpoint(path: Path) -> Optional[Dict]:
+def _checkpoint_path(checkpoint_root: Path, input_file: str) -> Path:
+    h = _checkpoint_key(input_file)
+    return checkpoint_root / f"{h}.json"
+
+
+def _read_checkpoint(path: Path, *, fallback: Optional[Path] = None) -> Optional[Dict]:
     if not path.exists():
-        return None
+        if fallback is None or not fallback.exists():
+            return None
+        return json.loads(fallback.read_text(encoding="utf-8"))
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -181,6 +187,7 @@ def _process_jsonl_file(
     resume: bool,
     strict: bool,
     output_root: Path,
+    checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
     ds: Any,
@@ -188,8 +195,9 @@ def _process_jsonl_file(
     dataset_path: str,
 ) -> None:
     del strict  # reserved for future per-record error policy
-    ckpt_path = _checkpoint_path(output_root, str(input_path))
-    ckpt = _read_checkpoint(ckpt_path) if resume else None
+    ckpt_path = _checkpoint_path(checkpoint_root, str(input_path))
+    old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(input_path))
+    ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
     next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
 
     buffer: List[Dict] = []
@@ -234,6 +242,7 @@ def _process_jsonl_files_parallel(
     resume: bool,
     strict: bool,
     output_root: Path,
+    checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
     ds: Any,
@@ -254,6 +263,7 @@ def _process_jsonl_files_parallel(
                 resume=resume,
                 strict=strict,
                 output_root=output_root,
+                checkpoint_root=checkpoint_root,
                 adapter_factory=adapter_factory,
                 relations_2d=relations_2d,
                 ds=ds,
@@ -297,7 +307,7 @@ def _flush_json_files_buffer_with_checkpoints(
     buffer: List[Dict],
     out_dir: Path,
     part_idx: int,
-    output_root: Path,
+    checkpoint_root: Path,
 ) -> int:
     """Write one part-*.jsonl and mark done checkpoint for each record's source file."""
     if not buffer:
@@ -310,7 +320,7 @@ def _flush_json_files_buffer_with_checkpoints(
         src = rec.get("aux", {}).get("record_ref", {}).get("input_file")
         if src:
             _write_checkpoint_atomic(
-                _checkpoint_path(output_root, str(src)),
+                _checkpoint_path(checkpoint_root, str(src)),
                 {"input_file": str(src), "done": True, "errors_count": 0},
             )
     return part_idx + 1
@@ -323,6 +333,7 @@ def _process_json_files_sequential(
     batch_size: int,
     resume: bool,
     output_root: Path,
+    checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
     ds: Any,
@@ -333,8 +344,9 @@ def _process_json_files_sequential(
     part_idx = 0
     buffer: List[Dict] = []
     for ip in input_files:
-        ckpt_path = _checkpoint_path(output_root, str(ip))
-        ckpt = _read_checkpoint(ckpt_path) if resume else None
+        ckpt_path = _checkpoint_path(checkpoint_root, str(ip))
+        old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(ip))
+        ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
         if ckpt and ckpt.get("done") is True:
             continue
         rec = _read_single_json_file_record(
@@ -347,10 +359,10 @@ def _process_json_files_sequential(
         )
         buffer.append(rec)
         if len(buffer) >= batch_size:
-            part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+            part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, checkpoint_root)
             buffer.clear()
     if buffer:
-        _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+        _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, checkpoint_root)
 
 
 def _process_json_files_parallel(
@@ -361,6 +373,7 @@ def _process_json_files_parallel(
     batch_size: int,
     resume: bool,
     output_root: Path,
+    checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
     ds: Any,
@@ -370,8 +383,9 @@ def _process_json_files_parallel(
     out_dir.mkdir(parents=True, exist_ok=True)
     pending: List[Path] = []
     for ip in input_files:
-        ckpt_path = _checkpoint_path(output_root, str(ip))
-        ckpt = _read_checkpoint(ckpt_path) if resume else None
+        ckpt_path = _checkpoint_path(checkpoint_root, str(ip))
+        old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(ip))
+        ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
         if ckpt and ckpt.get("done") is True:
             continue
         pending.append(ip)
@@ -401,17 +415,17 @@ def _process_json_files_parallel(
                 rec = fut.result()
             except Exception as exc:  # noqa: BLE001
                 if buffer:
-                    part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+                    part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, checkpoint_root)
                     buffer.clear()
                 print(f"[openspatial-metadata] json_files worker failed: {ip}\n{exc!r}", file=sys.stderr)
                 ex.shutdown(wait=True, cancel_futures=True)
                 sys.exit(1)
             buffer.append(rec)
             if len(buffer) >= batch_size:
-                part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+                part_idx = _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, checkpoint_root)
                 buffer.clear()
         if buffer:
-            _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, output_root)
+            _flush_json_files_buffer_with_checkpoints(buffer, out_dir, part_idx, checkpoint_root)
             buffer.clear()
     finally:
         ex.shutdown(wait=True, cancel_futures=False)
@@ -453,6 +467,7 @@ def main(argv=None) -> None:
             files = [Path(p) for p in expand_inputs(split.inputs)]
             out_dir = output_root / ds.name / split.name
             out_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_root = out_dir / ".checkpoints"
             eff = effective_parallel_workers(cli_workers, g.num_workers, len(files))
             _log(
                 f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} "
@@ -469,6 +484,7 @@ def main(argv=None) -> None:
                         resume=args.resume or g.resume,
                         strict=g.strict,
                         output_root=output_root,
+                        checkpoint_root=checkpoint_root,
                         adapter_factory=adapter_factory,
                         relations_2d=rel2d,
                         ds=ds,
@@ -486,6 +502,7 @@ def main(argv=None) -> None:
                             resume=args.resume or g.resume,
                             strict=g.strict,
                             output_root=output_root,
+                            checkpoint_root=checkpoint_root,
                             adapter_factory=adapter_factory,
                             relations_2d=rel2d,
                             ds=ds,
@@ -502,6 +519,7 @@ def main(argv=None) -> None:
                         batch_size=g.batch_size,
                         resume=args.resume or g.resume,
                         output_root=output_root,
+                        checkpoint_root=checkpoint_root,
                         adapter_factory=adapter_factory,
                         relations_2d=rel2d,
                         ds=ds,
@@ -515,6 +533,7 @@ def main(argv=None) -> None:
                         batch_size=g.batch_size,
                         resume=args.resume or g.resume,
                         output_root=output_root,
+                        checkpoint_root=checkpoint_root,
                         adapter_factory=adapter_factory,
                         relations_2d=rel2d,
                         ds=ds,

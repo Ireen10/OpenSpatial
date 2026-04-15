@@ -135,7 +135,7 @@ class TestFramework(unittest.TestCase):
         """
         One split may list multiple JSONL shards. With default ``num_workers: 0`` (and no
         ``--num-workers``), the split runs sequentially and writes one ``.metadata.jsonl`` per
-        input (1:1 by stem), with separate checkpoints under ``output_root/.checkpoints/``.
+        input (1:1 by stem), with separate checkpoints under ``output_root/{dataset}/{split}/.checkpoints/``.
         """
         from openspatial_metadata.cli import main
 
@@ -200,7 +200,7 @@ class TestFramework(unittest.TestCase):
             self.assertEqual(json.loads(lines_a[0])["sample"]["sample_id"], "alpha/0")
             self.assertEqual(json.loads(lines_b[-1])["sample"]["sample_id"], "beta/3")
 
-            ckpt_dir = out_root / ".checkpoints"
+            ckpt_dir = split_dir / ".checkpoints"
             self.assertTrue(ckpt_dir.is_dir())
             ckpts = list(ckpt_dir.glob("*.json"))
             self.assertGreaterEqual(len(ckpts), 2)
