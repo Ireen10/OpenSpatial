@@ -22,7 +22,7 @@ from .schema.metadata_v0 import MetadataV0
 PARALLEL_WORKERS_CAP = 32
 
 
-_PROGRESS_MODE = "log"  # "log" | "tqdm" | "none"
+_PROGRESS_MODE = "tqdm"  # "tqdm" | "log" | "none" (tqdm will fall back to log if unavailable)
 _TQDM = None
 
 
@@ -507,7 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-root", default=None, help="Override output root (otherwise from global config).")
     p.add_argument("--resume", action="store_true", help="Resume from checkpoints.")
     p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel); 0 = use global.yaml num_workers.")
-    p.add_argument("--progress", choices=["log", "tqdm", "none"], default="log", help="Progress display mode.")
+    p.add_argument("--progress", choices=["tqdm", "log", "none"], default="tqdm", help="Progress display mode.")
     return p
 
 
