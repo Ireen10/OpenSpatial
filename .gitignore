@@ -2,6 +2,9 @@
 
 outputs/
 env
+# Python 虚拟环境（含 Linux/macOS 常用 .venv）
+.venv/
+venv/
 *.pyc
 __pycache__/
 eval_*.sh
