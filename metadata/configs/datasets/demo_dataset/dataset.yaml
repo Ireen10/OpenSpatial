@@ -5,6 +5,9 @@ meta:
 adapter:
   file_name: passthrough
   class_name: PassthroughAdapter
+enrich:
+  relations_2d: false
+  relations_3d: false
 splits:
   - name: train_jsonl
     input_type: jsonl
