@@ -25,9 +25,9 @@ NEAR_CENTER_DIST_REF = 16
 MIN_AREA_ABS_REF = 180
 
 # --- IoU ---
-# Stricter than early defaults: drop the pair at moderate overlap so centre-based
-# predicates are less often wrong (design §4.2).
-AMBIGUOUS_IOU = 0.68
+# If IoU > this value, drop the ordered pair. **0.3 is very strict** (mild overlap
+# already discarded); tune on real data (design §4.2).
+AMBIGUOUS_IOU = 0.3
 
 # --- aspect ratio max (w/h or h/w) for boxes ---
 MAX_ASPECT_RATIO = 24.0
