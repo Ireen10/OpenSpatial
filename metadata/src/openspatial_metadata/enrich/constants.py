@@ -29,7 +29,12 @@ MIN_AREA_ABS_REF = 180
 # already discarded); tune on real data (design §4.2).
 AMBIGUOUS_IOU = 0.3
 
-# --- aspect ratio max (w/h or h/w) for boxes ---
+# --- max aspect ratio for bbox (filters use max(w/h, h/w), w,h = box sides) ---
+# Values >> 1 mean **very elongated** boxes (thin strip or flat bar in norm space).
+# **24** is an arbitrary engineering cap: drop only *pathological* slivers (bad det /
+# line-like artefacts), not a statistically tuned constant. Typical real objects are
+# often < ~8–10 on this metric; raise if your domain has legitimate long buses/poles
+# in 2D bbox form; lower if you see many false positives from needle boxes.
 MAX_ASPECT_RATIO = 24.0
 
 
