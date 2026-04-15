@@ -28,7 +28,7 @@ class TestGroundingQAAdapter(unittest.TestCase):
                             "text": {
                                 "type": "string",
                                 "format": "utf-8",
-                                "string": "Please provide the bounding box coordinate ...",
+                                "string": "Please provide the bounding box coordinate of the region this sentence describes: yeah impossible here the one with yellow cheese on end",
                             },
                         },
                     ],
@@ -51,7 +51,11 @@ class TestGroundingQAAdapter(unittest.TestCase):
                     "content": [
                         {
                             "type": "text",
-                            "text": {"type": "string", "format": "utf-8", "string": "darkest hot dog"},
+                            "text": {
+                                "type": "string",
+                                "format": "utf-8",
+                                "string": "Please provide the bounding box coordinate of the region this sentence describes: darkest hot dog",
+                            },
                         }
                     ],
                 },
