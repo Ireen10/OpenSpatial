@@ -33,7 +33,7 @@
 
 | 目录 | 状态 |
 |------|------|
-| `metadata/plans/2026-04-16_0300_metadata_next/` | **起草中**：已从模板拷贝 `design` / `plan` / `test_plan` / `change_log` 骨架；**主题与范围待对齐** |
+| `metadata/plans/2026-04-16_0300_metadata_next/` | **Design 讨论稿**：2D image_plane **关系增强**（输入未冻结、**过滤策略**为重）；见该目录 `design.md` §7 未决问题 |
 | `metadata/plans/2026-04-15_0200_parallel_metadata_cli/` | **已交付**（实现 + 自测 + `change_log.md`；细节见该目录） |
 | `metadata/plans/2026-04-14_0100_metadata_framework/` | **已交付**（框架 v0；细节见该目录内文档与仓库历史） |
 

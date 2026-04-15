@@ -1,35 +1,141 @@
-# 方案设计（Design）— 待定主题
+# 方案设计（Design）：2D 关系增强（image_plane）
 
-> 本文件由 `metadata/plans/templates/design.md` 拷贝。与维护者对齐**背景、目标、非目标**后再定稿；定稿前**不要**基于本目录实现代码。
+> 目录：`metadata/plans/2026-04-16_0300_metadata_next/`  
+> 状态：**讨论稿** — 与 `metadata/docs/metadata_spec_v0_zh.md` v0 对齐；**输入侧格式本阶段不冻结为唯一 schema**，通过 **adapter + 归一化层 + 过滤策略** 收敛到统一 metadata。
 
-## 方案设计（Design）
+---
 
-### 背景与目标
+## 1. 背景与目标
 
-- 背景：（待填：要解决什么问题、与上一轮 `2026-04-15_0200_parallel_metadata_cli` 的关系）
-- 目标（必须可验证）：（待填）
-- 非目标（明确不做什么）：（待填）
+### 1.1 背景
 
-### 术语与约束
+- **已明确**：metadata **输出**侧 v0 结构（`dataset` / `sample` / `image` / `objects` / `relations` 等）及 2D 关系语义（`ref_frame=image_plane` 下的 `left|right|above|below`），见 `metadata/docs/metadata_spec_v0_zh.md`。
+- **未明确**：上游 **输入** 可能是多种 JSON/Parquet/检测器导出形态；同一逻辑下物体数量、bbox 尺度、重叠程度变化很大。
+- **本轮范围**：先只做 **2D image_plane 关系增强**，不碰 3D、不强制本轮完成 Parquet 主链路。
 
-- 术语：
-- 输入约束：
-- 输出约束：
-- 兼容性要求（与 OpenSpatial 主工程的边界）：
+### 1.2 目标（必须可验证）
 
-### 数据结构 / 接口契约
+1. 给定一个 **sample** 语义等价于：**一张图** + **若干物体**，每个物体至少有 **自然语言描述（或类别）** 与 **2D bbox**（单个或多个框的展开规则见下），能够 **计算或补全** `relations` 中满足 v0 的 **2D 关系边**（有序对 `(anchor_id, target_id)`，`predicate` ∈ {left, right, above, below}，`ref_frame="image_plane"`）。
+2. 所有写入的 `relations` 均可追溯：**`source`**（如 `computed`）、**`evidence`**（建议含 `method`、`anchor_point_uv_norm_1000`、`target_point_uv_norm_1000`、`delta_uv` 等与规范 §4.1 一致的子集）。
+3. **过滤策略可配置、可复现**：同一输入 + 同一配置 → 相同输出；过滤掉的物体/关系在 **`aux.enrich_2d`**（或等价命名）中留下统计与原因码，便于审计。
 
-- 输入数据样例（最小字段集）：
-- 输出数据样例（最小字段集）：
-- 错误处理与降级策略：
+### 1.3 非目标
 
-### 核心流程
+- **3D**、`egocentric` 关系、深度/点云几何。
+- 本轮 **不**将上游输入冻结为仓库唯一标准格式（仅定义 **最小输入契约** 与 **adapter 入口**）。
+- **不**保证对所有噪声输入「填满」关系：允许在严格过滤下 **输出空 `relations`**（显式优于胡填）。
+- **NMS / 去重** 以几何与关系可解释性为先，不追求检测最优 mAP。
 
-- 流程概览（可用伪代码/步骤）：
-- 关键算法/规则：
-- 可配置项：
+---
 
-### 风险与未决问题
+## 2. 最小输入契约（与上游的接口）
 
-- 风险：
-- 未决问题（需要和你确认的点）：
+> 实现上建议：`RawSample`（adapter 输出）→ `normalize_objects()` → `ObjectV0` 列表 → `pairwise_geometry()` → `RelationV0` 列表。
+
+**最小字段（逻辑上必需）**
+
+| 逻辑字段 | 说明 |
+|----------|------|
+| `image_ref` | 可解析的图片路径或 URI；用于 `sample.image.path` 与调试。 |
+| `objects[]` | 每项至少：`local_id`（或可由序生成）、`text`（描述或类别）、`bbox_xyxy`（见坐标） |
+
+**坐标**
+
+- 上游 bbox 可能是 **像素 xyxy**、**归一化 0–1**、或 **已与 v0 一致的 `norm_0_999` + scale=1000**。  
+- **归一化层**统一变到 **`bbox_xyxy_norm_1000`**（与现有 fixtures / `ObjectV0` 一致）；记录 `sample.image.coord_space` / `coord_scale`。
+
+**「单个 / 多个 / 重叠」在输入侧的解读**
+
+- **多个物体**：`objects` 多条 → 多个 `ObjectV0`（`object_id` 稳定生成，见 §3）。
+- **同一描述多个框**：上游可给 `boxes: [...]`；归一化层按 spec §3.3.1 **展开为多 object** 或合并为带 `quality` 的单一 object（**未决**，见 §7）。
+- **重叠**：不在输入层强行解决，交给 **§4 过滤与关系层消歧**。
+
+---
+
+## 3. 与 v0 输出结构的映射
+
+- **`objects`**：沿用 `ObjectV0`；建议写入 `phrase`（描述）、`bbox_xyxy_norm_1000`、`quality`（如 `bbox_quality`）供下游过滤与 QA 难度分层。
+- **`relations`**：沿用 `RelationV0`；本阶段固定：
+  - `ref_frame = "image_plane"`
+  - `predicate ∈ {"left","right","above","below"}`（与规范一致；实现可用 `components` 或仅 `predicate` 二选一，**须与现有 `RelationV0` 校验一致**）
+  - `source = "computed"`（或规范中的 `"computed"`）
+  - `evidence`：至少 `method`（建议默认 `bbox_center`）、参与计算的中心点或角点、`delta_uv`（可选）
+- **`aux.enrich_2d`**（建议结构，可调整命名）：
+  - `config_hash` 或序列化后的过滤配置快照
+  - `dropped_objects: [{object_id, reason, ...}]`
+  - `dropped_relation_candidates: [{anchor_id, target_id, reason}]`
+  - `stats: {n_objects_in, n_objects_kept, n_pairs_considered, n_relations_out}`
+
+---
+
+## 4. 过滤与消歧策略（设计重心）
+
+以下策略建议 **全部做成配置项**（YAML 或 dict），默认值偏保守（宁可少产关系）。
+
+### 4.1 物体级过滤（进入关系计算之前）
+
+| 策略 ID | 含义 | 建议默认思路 |
+|---------|------|----------------|
+| `geom_valid` | 剔除非法框：`x1>=x2`、`y1>=y2`、面积为 0、NaN | 必做 |
+| `in_bounds` | 裁剪或剔除超出 `[0, coord_scale)` 的框；若裁剪后面积低于阈值则剔除 | 可配置「裁剪 vs 剔除」 |
+| `min_area_abs` | 绝对最小面积（归一化平方单位） | 抑制极小块噪声 |
+| `min_area_frac` | 相对整图面积的最小占比 | 抑制极小目标 |
+| `max_aspect_ratio` | 宽高比上限 | 抑制条状异常框 |
+| `max_objects_per_sample` | 单图最多保留 K 个物体 | 超大列表时按 **面积降序** 或 **随机种子固定** 保留，并记 `reason=cap_exceeded` |
+| `nms_iou` | 可选 IoU 阈值：对 **同类或同 phrase** 的框做 NMS，合并或删副框 | **未决**：合并规则（见 §7） |
+
+### 4.2 关系对级过滤（有序对 `(anchor, target)`）
+
+- **几何谓词定义（默认）**：用 **bbox 中心点** `center_uv_norm_1000` 比较 `delta_u = tgt.u - anc.u`、`delta_v = tgt.v - anc.v`（v 向下为正，则 **image_plane 的 above = 更小 v** 须在实现与文档中写死一处，避免符号反了）。
+- **`min_abs_delta_u` / `min_abs_delta_v`**：低于阈值则认为 **tie**，**不输出**该维度的 left/right 或 above/below（或输出带 `score=0` 的弱关系 — **推荐不输出**，减少噪声）。
+- **主方向选择（互斥）**：若 `|delta_u| > |delta_v|` 则只标 **left/right**；否则只标 **above/below**（或按规范拆成两条 — **未决**：单主谓词 vs 双轴分解，见 §7）。
+- **对称去重**：若已输出 `A left B`，则不再输出 `B right A`（除非业务需要双向；默认 **去重**）。
+- **重叠 bbox**：若 IoU > `ambiguous_iou` 且中心距离 < `ambiguous_center_dist`，认为 **空间关系不可靠**，**丢弃**该对或整图降级（`aux` 记 `reason=heavy_overlap`）。
+
+### 4.3 质量与可追溯
+
+- 对保留的物体写入 `quality.bbox_quality` 建议枚举：`high|medium|low|unknown`（规则可由面积、边界贴边、是否被裁剪等推导）。
+- 每条 `relation` 的 `evidence` 必须能复算：至少保存两点坐标与 `method`。
+
+---
+
+## 5. 核心流程（伪代码级）
+
+```
+raw = adapter.load(sample_source)  # 输入格式未冻结
+objs = normalize_objects(raw, coord_policy)
+objs = filter_objects(objs, object_filters)
+rels = []
+for (a, t) in ordered_pairs(objs):   # 顺序策略可配置：全组合 / 仅不同类 / 等
+    if filter_pair(a, t, pair_filters):
+        continue
+    p = compute_predicate_image_plane(center(a), center(t), rules)
+    if p is not None:
+        rels.append(make_relation(a.id, t.id, p, evidence=...))
+rels = dedupe_symmetric(rels)
+attach_aux_enrich_stats(...)
+```
+
+---
+
+## 6. 风险
+
+- **输入格式漂移**：仅靠「最小契约」仍可能遇到字段缺失；依赖 adapter 显式报错 + `strict` 行为与现有 CLI 一致。
+- **符号与规范**：`above/below` 与像素 `y` 轴向一致性错误会导致系统性反标；需 **单元测试黄金向量**（小图 2–3 框手算）。
+- **组合爆炸**：`O(n^2)` 对在 `n` 很大时需 `max_objects_per_sample` + 仅采样部分对（若未来需要，另开设计）。
+
+---
+
+## 7. 未决问题（需你确认）
+
+1. **同一文本多个 bbox**：优先 **展开多 object**（spec §3.3.1）还是 **NMS 合成一个框**？是否依赖上游 `count`？
+2. **主方向互斥 vs 双谓词**：一对 `(A,B)` 是只产 **一个** predicate，还是在 `|du|`≈`|dv|` 时产两条弱边或丢弃？
+3. **第一轮交付形态**：优先 **库函数 + 单测**（`openspatial_metadata.enrich.relation2d`），还是同时接 **CLI 子命令**（如 `openspatial-metadata enrich-2d --config ...`）？
+4. **与 adapter 的关系**：2D enrich 是 **PassthroughAdapter 之后的一步**，还是 **新 adapter 接口**（`enrich(sample: MetadataV0) -> MetadataV0`）？
+
+---
+
+## 8. 文档与实现对齐清单（design 对齐后执行）
+
+- 更新 `metadata/docs/metadata_spec_v0_zh.md` 仅当引入与 §4.1 **不一致** 的新字段；否则在 `config_yaml_zh.md` / README 增加 **enrich 配置节** 即可。
+- `plan.md` / `test_plan.md`：在 §7 确认后编写任务拆解与黄金向量测试表。

@@ -1,12 +1,10 @@
 # 计划目录：`2026-04-16_0300_metadata_next`
 
-**状态**：已从 `metadata/plans/templates/` 拷贝文档骨架；**本轮主题、目标与非目标尚未定稿**，需与维护者在 `design.md` 上对齐后再写 `plan.md` / `test_plan.md`。
+**主题（已定方向）**：**2D 空间关系增强（relation enrichment）**——在 metadata v0 输出形态已明确的前提下，从「单图 + 多物体（描述 + 2D bbox）」等**尚未完全固定的上游输入**生成或补全 **`ref_frame=image_plane`** 的 2D 关系；**设计重心为过滤与消歧策略**。
 
-**建议下一步（候选，多选一或组合）**：
+**文档状态**
 
-1. **GitHub Actions CI**：在 Linux 上跑 `pytest metadata/tests`（与 `project_progress_zh.md` 中 TODO 一致）。
-2. **适配器管线**：CLI 在处理每条记录时调用已解析的 `adapter`（当前多为透传占位）。
-3. **Parquet I/O**：读/写与 OpenSpatial 主仓约定的 Parquet 形态（依赖与路径边界需先定 design）。
-4. **其它**：由你在讨论中指定。
+- `design.md`：**已定一版可讨论稿**（待你确认未决问题后再锁 `plan.md` / `test_plan.md`）。
+- `plan.md` / `test_plan.md`：骨架保留，**勿在 design 对齐前 deep 实现**。
 
-定稿后请把本 README 中的「状态」改为已对齐，并在 `design.md` 首段写清正式标题（可与目录名 `topic` 部分一致）。
+**与规范的关系**：输出字段与语义对齐 `metadata/docs/metadata_spec_v0_zh.md` §4.1（Relation2D / image_plane）；当前代码里 Pydantic 为 `relations: List[RelationV0]`（`predicate` + `ref_frame` + 可选 `evidence`），本阶段以 **写入该列表 + `source`/`evidence`** 为主，必要时在 `aux` 记录过滤日志。

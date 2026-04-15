@@ -1,6 +1,10 @@
-# 执行计划（Plan）— 待定主题
+# 执行计划（Plan）— 2D 关系增强
 
-> 本文件由 `metadata/plans/templates/plan.md` 拷贝。**须在 `design.md` 对齐之后**再填写任务拆解与文档同步清单。
+> **依赖**：`design.md` 讨论稿（过滤策略、最小输入契约）。**§7 未决问题确认前**，仅维护概要，不写可执行排期。
+
+**已定方向摘要**：实现 `ref_frame=image_plane` 的 `relations` 计算 + 可配置过滤；输出对齐 `RelationV0` + `aux.enrich_2d` 统计。
+
+**待 design 锁稿后补全**：交付物清单、任务拆解（库函数 / CLI / adapter 挂钩）、测试与文档同步勾选。
 
 ## 执行计划（Plan）
 
