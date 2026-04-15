@@ -145,7 +145,8 @@ class GroundingQAAdapter:
                 objects.append(
                     {
                         "object_id": oid,
-                        "category": "object",
+                        # category is required by schema, but this dataset has no explicit category.
+                        "category": "",
                         "bbox_xyxy_norm_1000": box,
                     }
                 )
