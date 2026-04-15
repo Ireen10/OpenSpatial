@@ -49,7 +49,7 @@ class TestCliE2ERefcocoSmall(unittest.TestCase):
             rec = json.loads(lines[0])
 
             self.assertEqual(rec["sample"]["image"]["coord_scale"], 777)
-            self.assertEqual(rec["dataset"]["source"], "local_fixture")
+            self.assertEqual(rec["dataset"]["source"], "refcoco")
             self.assertIn("objects", rec)
             self.assertIn("queries", rec)
             self.assertIn("relations", rec)

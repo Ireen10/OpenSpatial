@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-**2D `image_plane` 关系增强**（`enrich_relations_2d`）已按 `2026-04-16_0300_metadata_next` 落地并自测；与 adapter 解耦、无新 CLI。后续以 Parquet / 适配器管线 / CI、3D enrich 等为主。
+**adapter→enrich→写出** 的最小端到端链路已跑通（dataset.yaml 可控 2D enrich / per-dataset 输出目录 / meta 注入）；后续重点是将真实数据集规模化接入与补齐 3D enrich、严格/容错策略与 CI。
 
 ---
 
@@ -15,6 +15,9 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-15** | **E2E（小样例）**：新增 `GroundingQAAdapter` + CLI 调用 `adapter.convert`；dataset.yaml 支持 `enrich.relations_2d` 并在写出前执行 enrich；输出命名统一为 `*.metadata.jsonl`；支持 dataset.yaml 配置 `output_root`（多数据集隔离输出）；将 dataset.yaml 的 `meta` 注入到输出 `dataset.source` 与 `dataset.meta`；RefCOCO grounding 小样例（1 行 JSONL）可走完整链路并有 E2E 测试覆盖。 |
+| **2026-04-15** | **2D enrich 增强**：增加 containment 过滤（小框被覆盖 ≥70% 跳过），避免“大包小但 IoU 小”场景漏过；并增加“已有 relation triple 则跳过重算”去重逻辑。 |
+| **2026-04-15** | **schema / configs 组织**：`MetadataV0` 增加 `queries`（支持单/多实例与多指代表达）；datasets 配置改为“一数据集一文件夹”（`datasets/*/dataset.yaml`），并更新 loader/测试。 |
 | **2026-04-16** | **2D 关系增强**：`openspatial_metadata.enrich`（`enrich_relations_2d`、`filters`、`constants`）、`test_enrich_relation2d.py`；设计/计划见 `metadata/plans/2026-04-16_0300_metadata_next/`；`change_log.md` 已写。 |
 | **2026-04-15** | **并行 metadata CLI**：`effective_parallel_workers`、JSONL / `json_files` 文件级线程并行、flush 后 checkpoint、`--num-workers` 接线、strict 失败 stderr + 退出码 1；测试 `test_parallel_cli.py`（含 resume 场景）；文档 `config_yaml_zh.md`、`README.md`；详见 `metadata/plans/2026-04-15_0200_parallel_metadata_cli/change_log.md`。**步骤验收已通过；Linux 回归已通过。** |
 | **2026-04-14 ~ 15** | **metadata 框架 v0**：`openspatial-metadata` CLI（JSONL 1:1、`json_files`→`part-*.jsonl`、checkpoint）、YAML 配置、Pydantic v0 schema、fixtures、`pytest`/`unittest` 测试（含多 JSONL 分片 IT）、示例 `configs/`。 |
@@ -25,7 +28,8 @@
 ## 下一步 TODO（按建议优先级，随实现勾选）
 
 - [ ] **CI**：在 Linux 上跑 `pytest metadata/tests`（若仓库尚无 workflow，可在 OpenSpatial 根或子项目加一条）。  
-- [ ] **适配器管线**：在 CLI 中真正调用 `adapter`（当前多为透传占位）。  
+- [ ] **规模化接入真实数据**：为每个真实数据集补齐 `datasets/<name>/dataset.yaml`（含 inputs/glob、output_root、meta、enrich 开关），并补“样例+解析约束”的 plans。  
+- [ ] **3D enrich**：定义 `relations_3d` 的 enrich 入口与实现，打通 `enrich.relations_3d` 开关。  
 - [ ] **长期**：`ProcessPoolExecutor`、best-effort（`strict=False`）等 **另开 design 轮次**，不混在本文件旧条目里删除历史。
 
 ---

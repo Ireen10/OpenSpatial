@@ -1,6 +1,6 @@
 name: refcoco_grounding_aug_en_250618
 meta:
-  source: local_fixture
+  source: refcoco
   notes: "Minimal 1-line JSONL fixture for E2E: convert + enrich + write"
 adapter:
   file_name: grounding_qa
