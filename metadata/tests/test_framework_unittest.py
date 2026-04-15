@@ -117,7 +117,7 @@ class TestFramework(unittest.TestCase):
             ]
             main(args)
 
-            jsonl_out = out_root / "demo_dataset" / "train_jsonl" / "jsonl_shard_small.out.jsonl"
+            jsonl_out = out_root / "demo_dataset" / "train_jsonl" / "jsonl_shard_small.metadata.jsonl"
             self.assertTrue(jsonl_out.exists())
             lines = jsonl_out.read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(lines), 10)
@@ -126,7 +126,7 @@ class TestFramework(unittest.TestCase):
             self.assertIn("record_ref", first["aux"])
 
             json_out_dir = out_root / "demo_dataset" / "train_json"
-            parts = sorted(json_out_dir.glob("part-*.jsonl"))
+            parts = sorted(json_out_dir.glob("part-*.metadata.jsonl"))
             self.assertTrue(parts)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -134,7 +134,7 @@ class TestFramework(unittest.TestCase):
     def test_cli_multi_jsonl_shards_separate_outputs(self):
         """
         One split may list multiple JSONL shards. With default ``num_workers: 0`` (and no
-        ``--num-workers``), the split runs sequentially and writes one ``.out.jsonl`` per
+        ``--num-workers``), the split runs sequentially and writes one ``.metadata.jsonl`` per
         input (1:1 by stem), with separate checkpoints under ``output_root/.checkpoints/``.
         """
         from openspatial_metadata.cli import main
@@ -188,8 +188,8 @@ class TestFramework(unittest.TestCase):
             )
 
             split_dir = out_root / "multi_jsonl_fixture" / "train_shards"
-            out_a = split_dir / "jsonl_shard_alpha.out.jsonl"
-            out_b = split_dir / "jsonl_shard_beta.out.jsonl"
+            out_a = split_dir / "jsonl_shard_alpha.metadata.jsonl"
+            out_b = split_dir / "jsonl_shard_beta.metadata.jsonl"
             self.assertTrue(out_a.is_file(), msg=f"missing {out_a}")
             self.assertTrue(out_b.is_file(), msg=f"missing {out_b}")
 

@@ -194,7 +194,7 @@ def _process_jsonl_files_parallel(
     futures = {}
     try:
         for ip in files:
-            op = out_dir / (ip.stem + ".out.jsonl")
+            op = out_dir / (ip.stem + ".metadata.jsonl")
             fut = ex.submit(
                 _process_jsonl_file,
                 ip,
@@ -243,7 +243,7 @@ def _flush_json_files_buffer_with_checkpoints(
     """Write one part-*.jsonl and mark done checkpoint for each record's source file."""
     if not buffer:
         return part_idx
-    out_path = out_dir / f"part-{part_idx:06d}.jsonl"
+    out_path = out_dir / f"part-{part_idx:06d}.metadata.jsonl"
     with JsonlWriter(out_path, append=False) as w:
         w.write_records(buffer)
         w.flush()
@@ -387,7 +387,7 @@ def main(argv=None) -> None:
                     )
                 else:
                     for ip in files:
-                        op = out_dir / (ip.stem + ".out.jsonl")
+                        op = out_dir / (ip.stem + ".metadata.jsonl")
                         _process_jsonl_file(
                             ip,
                             op,

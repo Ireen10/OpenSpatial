@@ -63,9 +63,9 @@ class TestJsonlParallel(unittest.TestCase):
                 )
                 sa = set()
                 sb = set()
-                for line in (out / "cmp" / "s" / "jsonl_shard_alpha.out.jsonl").read_text(encoding="utf-8").strip().splitlines():
+                for line in (out / "cmp" / "s" / "jsonl_shard_alpha.metadata.jsonl").read_text(encoding="utf-8").strip().splitlines():
                     sa.add(json.loads(line)["sample"]["sample_id"])
-                for line in (out / "cmp" / "s" / "jsonl_shard_beta.out.jsonl").read_text(encoding="utf-8").strip().splitlines():
+                for line in (out / "cmp" / "s" / "jsonl_shard_beta.metadata.jsonl").read_text(encoding="utf-8").strip().splitlines():
                     sb.add(json.loads(line)["sample"]["sample_id"])
                 return sa, sb
             finally:
@@ -114,7 +114,7 @@ class TestJsonFilesParallel(unittest.TestCase):
             )
             out = tmp / "out"
             main(["--config-root", str(cfg), "--global-config", str(g), "--output-root", str(out)])
-            parts = sorted((out / "jfpar" / "train").glob("part-*.jsonl"))
+            parts = sorted((out / "jfpar" / "train").glob("part-*.metadata.jsonl"))
             self.assertGreaterEqual(len(parts), 1)
             all_lines: list[str] = []
             for p in parts:
@@ -193,7 +193,7 @@ class TestJsonlResumeAfterParallelFailure(unittest.TestCase):
                     )
             self.assertEqual(cm.exception.args[0], 1)
 
-            out_good = out / "jlresume" / "s" / "good.out.jsonl"
+            out_good = out / "jlresume" / "s" / "good.metadata.jsonl"
             self.assertTrue(out_good.is_file())
             after_fail = out_good.read_text(encoding="utf-8").strip().splitlines()
             self.assertLessEqual(len(after_fail), 10)
