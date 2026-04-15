@@ -22,7 +22,13 @@ from .schema.metadata_v0 import MetadataV0
 PARALLEL_WORKERS_CAP = 32
 
 
-def _make_adapter_factory(ds) -> Callable[[], Optional[object]]:
+def _make_adapter_factory(
+    ds: Any,
+    *,
+    split_name: str,
+    coord_space: str,
+    coord_scale: int,
+) -> Callable[[], Optional[object]]:
     """
     Build a per-call adapter factory. Returns None when no adapter spec present.
     Adapter constructors may optionally accept dataset_name/split keyword args.
@@ -41,17 +47,27 @@ def _make_adapter_factory(ds) -> Callable[[], Optional[object]]:
     def _factory() -> Optional[object]:
         mod = import_module(module_name)
         cls = getattr(mod, class_name)
+        kwargs: Dict[str, Any] = {}
         try:
             params = signature(cls).parameters
-            if "dataset_name" in params or "split" in params:
-                return cls(dataset_name=ds.name, split="unknown")
+            if "dataset_name" in params:
+                kwargs["dataset_name"] = ds.name
+            if "split" in params:
+                kwargs["split"] = split_name
+            if "coord_space" in params:
+                kwargs["coord_space"] = coord_space
+            if "coord_scale" in params:
+                kwargs["coord_scale"] = coord_scale
         except Exception:
-            # If signature introspection fails, fall back to no-arg init.
-            pass
-        try:
-            return cls()
-        except TypeError:
-            return cls(dataset_name=ds.name, split="unknown")
+            # If signature introspection fails, fall back to minimal/no-arg init.
+            kwargs = {}
+
+        if kwargs:
+            try:
+                return cls(**kwargs)
+            except TypeError:
+                pass
+        return cls()
 
     return _factory
 
@@ -341,11 +357,16 @@ def main(argv=None) -> None:
     for cfg_path in cfg_paths:
         ds = load_dataset_config(cfg_path)
         resolve_adapter(ds)
-        adapter_factory = _make_adapter_factory(ds)
         (rel2d, rel3d) = _get_enrich_flags(ds)
         if rel3d:
             raise ValueError("relations_3d enrich not implemented")
         for split in ds.splits:
+            adapter_factory = _make_adapter_factory(
+                ds,
+                split_name=split.name,
+                coord_space="norm_0_999",
+                coord_scale=int(getattr(g, "scale", 1000)),
+            )
             files = [Path(p) for p in expand_inputs(split.inputs)]
             out_dir = output_root / ds.name / split.name
             out_dir.mkdir(parents=True, exist_ok=True)

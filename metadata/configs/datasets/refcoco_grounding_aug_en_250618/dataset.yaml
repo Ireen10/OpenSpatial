@@ -1,0 +1,16 @@
+name: refcoco_grounding_aug_en_250618
+meta:
+  source: local_fixture
+  notes: "Minimal 1-line JSONL fixture for E2E: convert + enrich + write"
+adapter:
+  file_name: grounding_qa
+  class_name: GroundingQAAdapter
+enrich:
+  relations_2d: true
+  relations_3d: false
+splits:
+  - name: train_small
+    input_type: jsonl
+    inputs:
+      - "metadata/configs/datasets/refcoco_grounding_aug_en_250618/sample_small.jsonl"
+
