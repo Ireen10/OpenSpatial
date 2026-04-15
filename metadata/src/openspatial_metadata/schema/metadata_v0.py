@@ -63,6 +63,19 @@ class RelationV0(BaseModel):
     evidence: Optional[Dict[str, Any]] = None
 
 
+class QueryV0(BaseModel):
+    class Config:
+        extra = "allow"
+
+    query_id: str
+    query_text: str
+    query_type: Optional[str] = None
+    candidate_object_ids: List[str] = Field(default_factory=list)
+    gold_object_id: Optional[str] = None
+    count: Optional[int] = None
+    filters: Dict[str, Any] = Field(default_factory=dict)
+
+
 class MetadataV0(BaseModel):
     """
     v0 minimal skeleton aligned with wiki top-level modules.
@@ -76,6 +89,7 @@ class MetadataV0(BaseModel):
     sample: SampleV0
     camera: Optional[Dict[str, Any]] = None
     objects: List[ObjectV0] = Field(default_factory=list)
+    queries: List[QueryV0] = Field(default_factory=list)
     relations: List[RelationV0] = Field(default_factory=list)
     aux: Dict[str, Any] = Field(default_factory=dict)
 

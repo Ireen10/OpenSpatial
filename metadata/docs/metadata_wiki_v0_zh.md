@@ -82,6 +82,17 @@
       "quality": { "bbox": "low", "geometry": "unknown" }
     }
   ],
+  "queries": [
+    {
+      "query_id": "q0",
+      "query_text": "the wooden chair",
+      "query_type": "huashan_annotated",
+      "candidate_object_ids": ["chair#0"],
+      "gold_object_id": "chair#0",
+      "count": 1,
+      "filters": {}
+    }
+  ],
   "relations": [
     {
       "anchor_id": "table#0",
@@ -111,6 +122,7 @@
   "sample": { "...": "..." },
   "camera": null,
   "objects": [],
+  "queries": [],
   "relations": [],
   "aux": {}
 }
@@ -123,6 +135,7 @@
 | `dataset` | 是 | 数据集标识（名称/版本/split），用于归档与追溯 | 数据集配置、导出脚本 |
 | `sample` | 是 | 样本基本信息与图像定位（`sample_id` / 路径 / 尺寸等） | 原始数据索引、文件系统 |
 | `objects` | 是 | 实例表：为 grounding、关系、QA 提供稳定的 `object_id` | 检测/分割/标注/3D 实例 |
+| `queries` | 否 | grounding/指代查询表：用于表达“一个表达对应一个或多个 object”的候选集合与 gold（若有） | grounding 数据、标注平台、导入脚本 |
 | `relations` | 否 | 关系标签（2D/3D 统一 label + `ref_frame` 消歧） | 人工标注、规则计算、外部导入 |
 | `camera` | 否 | 3D 几何复算所需的相机参数与深度；缺失时仍可归档人工 3D 标签 | 3D 场景数据、SfM/SLAM、深度估计 |
 | `aux` | 否（建议保留为空 `{}`） | 预留扩展区：审核信息、阈值版本、调试缓存等 | 任意（不应影响主流程） |
@@ -133,6 +146,7 @@
 - **`sample`**：图像与样本基础信息（id、view、文件路径、尺寸等）
 - **`camera`**：相机内外参（可为 `null`）
 - **`objects`**：目标/实例属性列表（用于定位 object）
+- **`queries`**：指代/grounding 查询列表（可为空；推荐用于单/多实例表达与审计）
 - **`relations`**：关系列表（2D/3D 统一标签 + ref_frame 消歧）
 - **`aux`**：辅助信息（非必选，先预留）
 
@@ -196,7 +210,28 @@
 #### 6.4.1 从 `{label, boxes, points, count}` 展开 objects（规则）
 展开与一致性校验规则见 `metadata_spec_v0_zh.md` 的 “3.3.1” 小节（本 wiki 页避免重复细节）。
 
-### 6.5 `relations`（关系列表）
+### 6.5 `queries`（指代/grounding 查询表，可选）
+
+`queries` 用于承载“一个指代表达（query_text）对应一个或多个 objects”的信息，便于：
+
+- 判断 **单实例 vs 多实例**（通过 `candidate_object_ids` / `gold_object_id` / `count`）
+- 对 grounding 数据做一致性校验与审计
+
+每个元素为一个 query：
+
+| 字段名 | 类型 | 说明 | 示例 |
+|---|---|---|---|
+| `queries[].query_id` | `string` | query 主键（建议稳定） | `"q0"` |
+| `queries[].query_text` | `string` | 指代描述/类别名 | `"the wooden chair"` |
+| `queries[].query_type` | `string?` | 可选：来源或类型（如 `"huashan_annotated"`） | `"huashan_annotated"` |
+| `queries[].candidate_object_ids` | `string[]` | 候选 object_id 列表 | `["chair#0"]` |
+| `queries[].gold_object_id` | `string?` | 若能唯一指向则填 | `"chair#0"` |
+| `queries[].count` | `int?` | 目标数（可用于一致性校验） | `1` |
+| `queries[].filters` | `object?` | 可选：过滤/特征（如空间词检测） | `{}` |
+
+> 说明：本节字段与 `metadata_spec_v0_zh.md` 的 `Query` 结构对齐；当无需 grounding 监督时可省略 `queries`。
+
+### 6.6 `relations`（关系列表）
 
 `relations` 是数组，每条关系描述一对 objects 的方位关系（2D/3D 都在这里，靠 `ref_frame` 区分）。
 
@@ -217,7 +252,7 @@
 | `relations[].score` | `number?` | 可选：置信度 0~1 | `1.0` |
 | `relations[].evidence` | `object?` | 可选：证据（点/差值/方法） | `{...}` |
 
-#### 6.5.1 `axis_signs`（推荐的复合方位表达）
+#### 6.6.1 `axis_signs`（推荐的复合方位表达）
 
 当需要表达“左前上 / 右后下”等复合方位时，推荐使用：
 
@@ -229,7 +264,7 @@
 
 - `components`: 例如 `{"right":-1,"front":+1}` → `["left","front"]`
 
-### 6.6 `aux`（辅助信息，预留）
+### 6.7 `aux`（辅助信息，预留）
 
 `aux` 用于承载不确定但可能有用的信息，建议先保留为空对象 `{}`，不要在 v0 强制结构。
 
