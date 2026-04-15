@@ -78,6 +78,8 @@ def load_global_config(path: Optional[PathLike]) -> GlobalConfig:
 
 def load_dataset_config(path: PathLike) -> DatasetConfig:
     p = Path(path)
+    if p.is_dir():
+        p = p / "dataset.yaml"
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     return DatasetConfig.parse_obj(data)
 
@@ -86,7 +88,7 @@ def discover_dataset_configs(config_root: PathLike) -> List[str]:
     root = Path(config_root)
     if root.is_file():
         return [str(root)]
-    paths = sorted([str(p) for p in root.glob("**/*.yaml")])
+    paths = sorted([str(p) for p in root.glob("*/dataset.yaml")])
     return paths
 
 
