@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-并行 CLI（`num_workers` / `--num-workers`、`json_files` 主写者、`strict=True`、**仅** `ThreadPoolExecutor`）**已落地并自测通过**；**本轮步骤验收已通过**（含新 clone 环境按 `README` 安装与 `pytest metadata/tests` / `unittest` 回归）。后续以 Parquet / 适配器管线等为主。
+并行 CLI（`num_workers` / `--num-workers`、`json_files` 主写者、`strict=True`、**仅** `ThreadPoolExecutor`）**已落地并自测通过**；**本轮步骤验收已通过**（含新 clone 环境按 `README` 安装与 `pytest metadata/tests` / `unittest` 回归）。**Linux 上 `pytest metadata/tests` 已通过并留档**（见 `metadata/plans/2026-04-15_0200_parallel_metadata_cli/change_log.md`）。后续以 Parquet / 适配器管线 / CI 等为主；**新一轮计划目录已建骨架，主题待定**（`metadata/plans/2026-04-16_0300_metadata_next/`）。
 
 ---
 
@@ -15,7 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
-| **2026-04-15** | **并行 metadata CLI**：`effective_parallel_workers`、JSONL / `json_files` 文件级线程并行、flush 后 checkpoint、`--num-workers` 接线、strict 失败 stderr + 退出码 1；测试 `test_parallel_cli.py`（含 resume 场景）；文档 `config_yaml_zh.md`、`README.md`；详见 `metadata/plans/2026-04-15_0200_parallel_metadata_cli/change_log.md`。**步骤验收已通过。** |
+| **2026-04-15** | **并行 metadata CLI**：`effective_parallel_workers`、JSONL / `json_files` 文件级线程并行、flush 后 checkpoint、`--num-workers` 接线、strict 失败 stderr + 退出码 1；测试 `test_parallel_cli.py`（含 resume 场景）；文档 `config_yaml_zh.md`、`README.md`；详见 `metadata/plans/2026-04-15_0200_parallel_metadata_cli/change_log.md`。**步骤验收已通过；Linux 回归已通过。** |
 | **2026-04-14 ~ 15** | **metadata 框架 v0**：`openspatial-metadata` CLI（JSONL 1:1、`json_files`→`part-*.jsonl`、checkpoint）、YAML 配置、Pydantic v0 schema、fixtures、`pytest`/`unittest` 测试（含多 JSONL 分片 IT）、示例 `configs/`。 |
 | **同期** | 用户文档：`config_yaml_zh.md`、`docs_sync_convention_zh.md`；`README.md`；根目录 `pyproject.toml` / `pyrightconfig.json`；`.gitignore` 修正（`/tests/`、`egg-info`、临时目录）；plan **模板**补充「文档同步」与 **change_log** 模板。 |
 
@@ -33,6 +33,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-16_0300_metadata_next/` | **起草中**：已从模板拷贝 `design` / `plan` / `test_plan` / `change_log` 骨架；**主题与范围待对齐** |
 | `metadata/plans/2026-04-15_0200_parallel_metadata_cli/` | **已交付**（实现 + 自测 + `change_log.md`；细节见该目录） |
 | `metadata/plans/2026-04-14_0100_metadata_framework/` | **已交付**（框架 v0；细节见该目录内文档与仓库历史） |
 

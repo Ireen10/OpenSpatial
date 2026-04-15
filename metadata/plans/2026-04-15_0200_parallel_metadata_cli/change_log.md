@@ -11,7 +11,11 @@
 - `python -m pytest metadata/tests -q`
 - `python -m unittest discover -s metadata/tests -p "test_*.py" -q`
 
-（开发机：Windows；质量门槛仍以 Linux CI 为准。）
+（开发机：Windows；质量门槛仍以 Linux 为准。）
+
+## Linux 回归（留档）
+
+- 独立 Linux 环境 clone 后：`pip install -e ./metadata`（及可选 `[dev]`）、仓库根执行 `python -m pytest metadata/tests -q` — **已通过**（与 `test_plan.md` 质量门槛一致）。
 
 ## 已知限制
 
