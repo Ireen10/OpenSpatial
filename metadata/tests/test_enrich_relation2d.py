@@ -140,6 +140,15 @@ class TestEnrichPairRules(unittest.TestCase):
         self.assertEqual(len(md.relations), 0)
         self.assertTrue(any(x["reason"] == "high_iou" for x in md.aux["enrich_2d"]["dropped_relation_candidates"]))
 
+    def test_r1_1b_containment_drops_even_when_iou_small(self):
+        big = _box("a#0", [0, 0, 900, 900])
+        small = _box("b#0", [10, 10, 110, 110])
+        md = enrich_relations_2d(_meta(big, small))
+        self.assertEqual(len(md.relations), 0)
+        self.assertTrue(
+            any(x["reason"] == "containment" for x in md.aux["enrich_2d"]["dropped_relation_candidates"])
+        )
+
     def test_r1_2_near_center_drops(self):
         a = _box("a#0", [0, 0, 200, 200])
         b = _box("b#0", [90, 90, 110, 110])

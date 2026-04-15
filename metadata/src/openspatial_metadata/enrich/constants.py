@@ -29,6 +29,11 @@ MIN_AREA_ABS_REF = 180
 # already discarded); tune on real data (design §4.2).
 AMBIGUOUS_IOU = 0.3
 
+# --- containment (IoA w.r.t. smaller box) ---
+# IoU can be small even when one box almost fully contains the other (large vs small).
+# Drop such pairs when intersection covers most of the smaller box.
+CONTAINMENT_IOA = 0.7
+
 # --- max aspect ratio for bbox (filters use max(w/h, h/w), w,h = box sides) ---
 # Values >> 1 mean **very elongated** boxes (thin strip or flat bar in norm space).
 # **24** is an arbitrary engineering cap: drop only *pathological* slivers (bad det /

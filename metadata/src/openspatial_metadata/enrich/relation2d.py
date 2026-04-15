@@ -50,6 +50,25 @@ def bbox_iou(a: List[int], b: List[int]) -> float:
     return inter / union
 
 
+def _bbox_containment_ioa(a: List[int], b: List[int]) -> float:
+    """
+    Intersection over smaller box area (IoA w.r.t. min-area box).
+    Useful to catch "big contains small" cases where IoU can be tiny.
+    """
+    xa1, ya1, xa2, ya2 = a
+    xb1, yb1, xb2, yb2 = b
+    ix1, iy1 = max(xa1, xb1), max(ya1, yb1)
+    ix2, iy2 = min(xa2, xb2), min(ya2, yb2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    aa = max(0, xa2 - xa1) * max(0, ya2 - ya1)
+    bb_ = max(0, xb2 - xb1) * max(0, yb2 - yb1)
+    denom = min(aa, bb_)
+    if denom <= 0:
+        return 0.0
+    return inter / denom
+
+
 def _euclid(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
@@ -131,6 +150,21 @@ def _maybe_relation_for_pair(
             {"anchor_id": anchor.object_id, "target_id": target.object_id, "reason": "near_center"}
         )
         return None
+
+    # Containment (big contains small) can have tiny IoU; run after IoU and near-center
+    # so those drop reasons stay more specific when applicable.
+    if ab is not None and bb is not None:
+        ioa_small = _bbox_containment_ioa(ab, bb)
+        if ioa_small >= float(C.CONTAINMENT_IOA):
+            dropped_candidates.append(
+                {
+                    "anchor_id": anchor.object_id,
+                    "target_id": target.object_id,
+                    "reason": "containment",
+                    "ioa_small": ioa_small,
+                }
+            )
+            return None
 
     du, dv = pb[0] - pa[0], pb[1] - pa[1]
     adu, adv = abs(du), abs(dv)
