@@ -15,10 +15,10 @@ REF_COORD_SCALE = 1000
 
 # --- distances / deltas (same units as norm UV at REF scale) ---
 # Ignore an axis for single-axis output when |delta| is tiny (noise / tie on that axis).
-MIN_ABS_DELTA_U_REF = 200
-MIN_ABS_DELTA_V_REF = 200
+MIN_ABS_DELTA_U_REF = 100
+MIN_ABS_DELTA_V_REF = 100
 # Two representative points closer than this (after IoU check) → relation unreliable.
-NEAR_CENTER_DIST_REF = 200
+NEAR_CENTER_DIST_REF = 100
 
 # --- area (square of norm units at REF scale) ---
 # ~100×100 at scale 1000: drop speck boxes before relations.
@@ -27,7 +27,7 @@ MIN_AREA_ABS_REF = 10000
 # --- IoU ---
 # If IoU > this value, drop the ordered pair. **0.3 is very strict** (mild overlap
 # already discarded); tune on real data (design §4.2).
-AMBIGUOUS_IOU = 0.3
+AMBIGUOUS_IOU = 0.5
 
 # --- containment (IoA w.r.t. smaller box) ---
 # IoU can be small even when one box almost fully contains the other (large vs small).
