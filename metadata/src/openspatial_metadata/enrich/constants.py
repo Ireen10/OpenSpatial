@@ -15,14 +15,14 @@ REF_COORD_SCALE = 1000
 
 # --- distances / deltas (same units as norm UV at REF scale) ---
 # Ignore an axis for single-axis output when |delta| is tiny (noise / tie on that axis).
-MIN_ABS_DELTA_U_REF = 100
-MIN_ABS_DELTA_V_REF = 100
+MIN_ABS_DELTA_U_REF = 200
+MIN_ABS_DELTA_V_REF = 200
 # Two representative points closer than this (after IoU check) → relation unreliable.
-NEAR_CENTER_DIST_REF = 16
+NEAR_CENTER_DIST_REF = 200
 
 # --- area (square of norm units at REF scale) ---
-# ~13×13 at scale 1000: drop speck boxes before relations.
-MIN_AREA_ABS_REF = 180
+# ~100×100 at scale 1000: drop speck boxes before relations.
+MIN_AREA_ABS_REF = 10000
 
 # --- IoU ---
 # If IoU > this value, drop the ordered pair. **0.3 is very strict** (mild overlap
@@ -32,15 +32,15 @@ AMBIGUOUS_IOU = 0.3
 # --- containment (IoA w.r.t. smaller box) ---
 # IoU can be small even when one box almost fully contains the other (large vs small).
 # Drop such pairs when intersection covers most of the smaller box.
-CONTAINMENT_IOA = 0.7
+CONTAINMENT_IOA = 0.8
 
 # --- max aspect ratio for bbox (filters use max(w/h, h/w), w,h = box sides) ---
 # Values >> 1 mean **very elongated** boxes (thin strip or flat bar in norm space).
-# **24** is an arbitrary engineering cap: drop only *pathological* slivers (bad det /
+# **12** is an arbitrary engineering cap: drop only *pathological* slivers (bad det /
 # line-like artefacts), not a statistically tuned constant. Typical real objects are
 # often < ~8–10 on this metric; raise if your domain has legitimate long buses/poles
 # in 2D bbox form; lower if you see many false positives from needle boxes.
-MAX_ASPECT_RATIO = 24.0
+MAX_ASPECT_RATIO = 12.0
 
 
 def scale_length(value_at_ref: float, coord_scale: int) -> float:
