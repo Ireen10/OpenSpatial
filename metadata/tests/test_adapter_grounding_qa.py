@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 
 from openspatial_metadata.adapters.grounding_qa import GroundingQAAdapter
 
@@ -191,6 +193,27 @@ class TestGroundingQAAdapter(unittest.TestCase):
         self.assertEqual(out["objects"][0]["bbox_xyxy_norm_1000"], [1, 2, 3, 4])
         self.assertEqual(out["queries"][1]["query_text"], "obj2")
         self.assertEqual(out["objects"][1]["bbox_xyxy_norm_1000"], [50, 60, 70, 80])
+
+    def test_complex_grounded_caption_fixture(self):
+        fixture = Path(__file__).resolve().parent / "fixtures" / "grounding_caption_complex.jsonl"
+        record = json.loads(fixture.read_text(encoding="utf-8").strip().splitlines()[0])
+        out = self._run(record)
+
+        # Expected: 3 queries (single-box ref, two-box ref, second-turn same-box different ref),
+        # 4 objects total. Stray box and ref-only segment are ignored.
+        self.assertEqual(len(out["queries"]), 3)
+        self.assertEqual(len(out["objects"]), 4)
+
+        bboxes = [o["bbox_xyxy_norm_1000"] for o in out["objects"]]
+        self.assertEqual(bboxes.count([10, 20, 110, 120]), 2)  # same box appears in two turns with different ref
+        self.assertIn([200, 210, 260, 280], bboxes)
+        self.assertIn([300, 310, 360, 380], bboxes)
+        self.assertNotIn([400, 410, 450, 460], bboxes)  # stray box must not be attached
+
+        qtexts = [q["query_text"] for q in out["queries"]]
+        self.assertIn("a red backpack on the chair", qtexts)
+        self.assertIn("two shiny apples on the table", qtexts)
+        self.assertIn("the worn bag on the seat", qtexts)
 
     def test_only_ref_without_box_is_skipped(self):
         record = self._base_record()
