@@ -76,7 +76,16 @@
   <script>
     const $ = (id) => document.getElementById(id);
     let config = { default_scale: 1000 };
-    let state = { path: null, line: 0, line_count: 0, record: null };
+    let state = {
+      path: null,
+      line: 0,
+      line_count: 0,
+      record: null,
+      hover_object_id: null,
+      hover_relation_idx: null,
+      selected_object_id: null,
+      selected_relation_idx: null,
+    };
 
     async function loadConfig() {
       const r = await fetch("/api/config");
@@ -91,6 +100,53 @@
 
     function normToPx(n, sc, dim) {
       return (n / sc) * dim;
+    }
+
+    function objLabel(o) {
+      const phrase = (o && o.phrase) ? String(o.phrase).trim() : "";
+      const cat = (o && o.category) ? String(o.category).trim() : "";
+      const oid = (o && o.object_id) ? String(o.object_id) : "";
+      const main = phrase || cat || oid;
+      return oid && main && main !== oid ? `${oid} · ${main}` : (main || oid);
+    }
+
+    function buildObjIndex(rec) {
+      const out = {};
+      (rec.objects || []).forEach((o, i) => {
+        out[String(o.object_id)] = { obj: o, idx: i };
+      });
+      return out;
+    }
+
+    function objColor(idx) {
+      const hue = (idx * 47) % 360;
+      return `hsl(${hue},70%,55%)`;
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, color, emph) {
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      if (!len || len < 1) return;
+      const ux = dx / len, uy = dy / len;
+      const head = emph ? 12 : 9;
+      const wing = emph ? 7 : 5;
+      // Leave some space for arrow head.
+      const tx = x2 - ux * head;
+      const ty = y2 - uy * head;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = emph ? 3 : 2;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      // Arrow head.
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(tx + (-uy) * wing, ty + (ux) * wing);
+      ctx.lineTo(tx + (uy) * wing, ty + (-ux) * wing);
+      ctx.closePath();
+      ctx.fill();
     }
 
     function drawOverlay() {
@@ -110,17 +166,31 @@
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, dispW, dispH);
       ctx.lineWidth = 2;
+      const objIndex = buildObjIndex(rec);
       const objs = rec.objects || [];
       objs.forEach((o, i) => {
-        const hue = (i * 47) % 360;
-        ctx.strokeStyle = `hsl(${hue},70%,55%)`;
-        const label = (o.phrase || o.category || o.object_id || "");
+        const oid = String(o.object_id || "");
+        const isFocus = (oid && (oid === state.hover_object_id || oid === state.selected_object_id));
+        const base = objColor(i);
+        ctx.strokeStyle = base;
+        ctx.globalAlpha = isFocus ? 1.0 : 0.65;
+        const label = objLabel(o);
         if (o.bbox_xyxy_norm_1000) {
           const [x1,y1,x2,y2] = o.bbox_xyxy_norm_1000;
           const px1 = normToPx(x1, sc, w) * sx, py1 = normToPx(y1, sc, h) * sy;
           const px2 = normToPx(x2, sc, w) * sx, py2 = normToPx(y2, sc, h) * sy;
+          if (isFocus) {
+            ctx.save();
+            ctx.globalAlpha = 0.18;
+            ctx.fillStyle = base;
+            ctx.fillRect(px1, py1, px2 - px1, py2 - py1);
+            ctx.restore();
+            ctx.lineWidth = 3;
+          } else {
+            ctx.lineWidth = 2;
+          }
           ctx.strokeRect(px1, py1, px2 - px1, py2 - py1);
-          ctx.fillStyle = `hsl(${hue},70%,55%)`;
+          ctx.fillStyle = base;
           ctx.font = "12px sans-serif";
           ctx.fillText(label, px1, Math.max(12, py1 - 4));
         } else if (o.point_uv_norm_1000) {
@@ -130,17 +200,24 @@
           ctx.arc(px, py, 5, 0, Math.PI * 2);
           ctx.stroke();
         }
+        ctx.globalAlpha = 1.0;
       });
-      const rels = (rec.relations || []).filter((r) => r.ref_frame === "image_plane");
-      rels.forEach((r) => {
+
+      // Relations: draw directed arrows (anchor -> target).
+      const relsAll = (rec.relations || []);
+      const rels = relsAll
+        .map((r, idx) => ({ r, idx }))
+        .filter((x) => x.r && x.r.ref_frame === "image_plane");
+      const focusRelIdx = state.hover_relation_idx != null ? state.hover_relation_idx : state.selected_relation_idx;
+      rels.forEach(({ r, idx }) => {
         const ev = r.evidence || {};
         const a = ev.anchor_point_uv_norm_1000, t = ev.target_point_uv_norm_1000;
         if (!a || !t) return;
-        ctx.strokeStyle = "#ffcc80";
-        ctx.beginPath();
-        ctx.moveTo(normToPx(a[0], sc, w) * sx, normToPx(a[1], sc, h) * sy);
-        ctx.lineTo(normToPx(t[0], sc, w) * sx, normToPx(t[1], sc, h) * sy);
-        ctx.stroke();
+        const emph = (focusRelIdx != null && idx === focusRelIdx);
+        const color = emph ? "#ffd166" : "#ffcc80";
+        const x1 = normToPx(a[0], sc, w) * sx, y1 = normToPx(a[1], sc, h) * sy;
+        const x2 = normToPx(t[0], sc, w) * sx, y2 = normToPx(t[1], sc, h) * sy;
+        drawArrow(ctx, x1, y1, x2, y2, color, emph);
       });
     }
 
@@ -149,18 +226,93 @@
       $("raw-json").textContent = rec ? JSON.stringify(rec, null, 2) : "";
       const po = $("panel-objects"), pq = $("panel-queries"), pr = $("panel-relations"), pa = $("panel-aux");
       if (!rec) { [po,pq,pr,pa].forEach((p) => p.innerHTML = ""); return; }
+      const objIndex = buildObjIndex(rec);
       const rows = (rec.objects || []).map((o) => {
-        const name = o.phrase || o.category || o.object_id;
-        return `<tr><td>${esc(o.object_id)}</td><td>${esc(name)}</td><td>${esc(JSON.stringify(o.bbox_xyxy_norm_1000 || o.point_uv_norm_1000))}</td></tr>`;
+        const oid = String(o.object_id || "");
+        const idx = objIndex[oid] ? objIndex[oid].idx : 0;
+        const color = objColor(idx);
+        const name = (o.phrase || o.category || o.object_id || "");
+        const geom = o.bbox_xyxy_norm_1000 || o.point_uv_norm_1000;
+        const active = (oid && (oid === state.selected_object_id)) ? " style=\"background:#3c4043\"" : "";
+        return `<tr data-oid="${esc(oid)}"${active}><td><span style="display:inline-block;width:10px;height:10px;background:${esc(color)};border-radius:2px;margin-right:6px;"></span>${esc(oid)}</td><td>${esc(name)}</td><td>${esc(JSON.stringify(geom))}</td></tr>`;
       }).join("");
-      po.innerHTML = `<table><tr><th>id</th><th>label</th><th>geom</th></tr>${rows}</table>`;
+      po.innerHTML = `<table><tr><th>id</th><th>label</th><th>geom</th></tr>${rows}</table><div style="margin-top:8px;color:var(--muted);">Tip: click row to highlight bbox</div>`;
       const qrows = (rec.queries || []).map((q) =>
         `<tr><td>${esc(q.query_id)}</td><td>${esc(q.query_text)}</td><td>${esc(q.gold_object_id || "")}</td></tr>`).join("");
       pq.innerHTML = `<table><tr><th>id</th><th>text</th><th>gold</th></tr>${qrows}</table>`;
-      const rr = (rec.relations || []).map((r) =>
-        `<tr><td>${esc(r.ref_frame)}</td><td>${esc(r.anchor_id)}→${esc(r.target_id)}</td><td>${esc(r.predicate)} ${esc((r.components||[]).join(","))}</td></tr>`).join("");
-      pr.innerHTML = `<table><tr><th>frame</th><th>edge</th><th>pred</th></tr>${rr}</table>`;
+
+      function edgeLabel(oid) {
+        const hit = objIndex[String(oid || "")];
+        if (!hit) return String(oid || "");
+        return objLabel(hit.obj);
+      }
+
+      const rr = (rec.relations || []).map((r, idx) => {
+        const is2d = r && r.ref_frame === "image_plane";
+        const focus = (idx === state.selected_relation_idx) ? " style=\"background:#3c4043\"" : "";
+        const pred = (r.components && r.components.length) ? r.components.join("+") : r.predicate;
+        const edge = `${edgeLabel(r.anchor_id)} → ${edgeLabel(r.target_id)}`;
+        return `<tr data-ri="${idx}" data-is2d="${is2d ? "1" : "0"}"${focus}><td>${esc(r.ref_frame)}</td><td>${esc(edge)}</td><td>${esc(pred)}</td></tr>`;
+      }).join("");
+      pr.innerHTML = `<table><tr><th>frame</th><th>edge (anchor→target)</th><th>pred</th></tr>${rr}</table><div style="margin-top:8px;color:var(--muted);">Tip: hover/click a 2D row to highlight directed arrow</div>`;
       pa.innerHTML = `<pre>${esc(JSON.stringify(rec.aux || {}, null, 2))}</pre>`;
+
+      // Wire interactions (rows are rebuilt each render).
+      const objTable = po.querySelector("table");
+      if (objTable) {
+        objTable.onmouseover = (e) => {
+          const tr = e.target && e.target.closest ? e.target.closest("tr[data-oid]") : null;
+          if (!tr) return;
+          state.hover_object_id = tr.getAttribute("data-oid");
+          drawOverlay();
+        };
+        objTable.onmouseout = (e) => {
+          const tr = e.target && e.target.closest ? e.target.closest("tr[data-oid]") : null;
+          if (!tr) return;
+          state.hover_object_id = null;
+          drawOverlay();
+        };
+        objTable.onclick = (e) => {
+          const tr = e.target && e.target.closest ? e.target.closest("tr[data-oid]") : null;
+          if (!tr) return;
+          const oid = tr.getAttribute("data-oid");
+          state.selected_object_id = (state.selected_object_id === oid) ? null : oid;
+          state.selected_relation_idx = null;
+          renderInspector();
+          drawOverlay();
+        };
+      }
+      const relTable = pr.querySelector("table");
+      if (relTable) {
+        relTable.onmouseover = (e) => {
+          const tr = e.target && e.target.closest ? e.target.closest("tr[data-ri]") : null;
+          if (!tr) return;
+          if (tr.getAttribute("data-is2d") !== "1") return;
+          const idx = Number(tr.getAttribute("data-ri"));
+          state.hover_relation_idx = Number.isFinite(idx) ? idx : null;
+          const rec2 = state.record;
+          const r = rec2 && rec2.relations ? rec2.relations[idx] : null;
+          state.hover_object_id = r ? String(r.anchor_id || "") : null;
+          drawOverlay();
+        };
+        relTable.onmouseout = (e) => {
+          const tr = e.target && e.target.closest ? e.target.closest("tr[data-ri]") : null;
+          if (!tr) return;
+          state.hover_relation_idx = null;
+          state.hover_object_id = null;
+          drawOverlay();
+        };
+        relTable.onclick = (e) => {
+          const tr = e.target && e.target.closest ? e.target.closest("tr[data-ri]") : null;
+          if (!tr) return;
+          if (tr.getAttribute("data-is2d") !== "1") return;
+          const idx = Number(tr.getAttribute("data-ri"));
+          state.selected_relation_idx = (state.selected_relation_idx === idx) ? null : idx;
+          state.selected_object_id = null;
+          renderInspector();
+          drawOverlay();
+        };
+      }
     }
 
     function esc(s) {
@@ -176,6 +328,10 @@
       state.record = j.record;
       state.line = j.line;
       state.line_count = j.line_count;
+      state.hover_object_id = null;
+      state.hover_relation_idx = null;
+      state.selected_object_id = null;
+      state.selected_relation_idx = null;
       $("line-input").value = String(state.line);
       $("line-status").textContent = `line ${state.line + 1} / ${state.line_count}`;
       const rec = state.record;
