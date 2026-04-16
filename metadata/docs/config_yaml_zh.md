@@ -55,6 +55,21 @@
 - **类型**：任意 YAML 映射（在模型中为 `Dict[str, Any]`）  
 - **说明**：数据集级元信息（来源、版本说明、许可证等），**不参与路径解析**；可自由扩展。
 
+### `output_root`（可选）
+
+- **类型**：string  
+- **说明**：仅作用于**本数据集**的写出根目录；若省略则使用 global 的 `output_root`。与 CLI `--output-root`（全局覆盖）的优先级关系见 `metadata/src/openspatial_metadata/cli.py`。
+
+### `viz`（可选）
+
+- **类型**：映射，对应 `VizSpec`（见 `metadata/src/openspatial_metadata/config/schema.py`）。  
+- **作用**：供 **`openspatial-metadata-viz`**（metadata JSONL 浏览器）使用，与 `openspatial-metadata` 主流程解耦；ingestion **不读取**这些字段。
+
+| 子字段 | 类型 | 说明 |
+|--------|------|------|
+| `mode` | string | v0 仅支持 **`flat`**：图像在磁盘上为扁平树，`Path(image_root) / sample.image.path` 可读。 |
+| `image_root` | string，可选 | 解压 tar 后的图像根目录（与数据文档中 tar 内相对路径一致）。**若为相对路径**，则相对于**该数据集 `dataset.yaml` 所在目录**解析（便于写 `../../../tests/fixtures/...` 一类仓库内路径）。未设置时，浏览器无法通过 `/api/image` 加载像素，仅可看 JSON。 |
+
 ### `adapter`（可选）
 
 - **类型**：映射，对应 `AdapterSpec`。  

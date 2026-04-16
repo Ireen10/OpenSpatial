@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Metadata viewer</title>
+  <style>
+    :root { --bg: #1a1d23; --panel: #252a33; --text: #e8eaed; --muted: #9aa0a6; --acc: #8ab4f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+    header { padding: 8px 12px; background: var(--panel); border-bottom: 1px solid #3c4043; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    header span { color: var(--muted); font-size: 13px; }
+    main { flex: 1; display: flex; min-height: 0; }
+    aside { width: 280px; background: var(--panel); border-right: 1px solid #3c4043; overflow: auto; font-size: 13px; }
+    aside h3 { margin: 8px 12px; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+    aside button.file { display: block; width: 100%; text-align: left; padding: 6px 12px; border: none; background: transparent; color: var(--text); cursor: pointer; font-size: 12px; }
+    aside button.file:hover, aside button.file.active { background: #3c4043; }
+    .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .canvas-wrap { flex: 1; overflow: auto; padding: 12px; display: flex; justify-content: center; align-items: flex-start; background: #111; }
+    .img-box { position: relative; display: inline-block; max-width: 100%; }
+    .img-box img { display: block; max-width: 100%; height: auto; }
+    #overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+    .toolbar { padding: 8px 12px; background: var(--panel); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .toolbar input[type="number"] { width: 64px; }
+    .toolbar button { padding: 4px 10px; cursor: pointer; }
+    .inspector { width: 360px; background: var(--panel); border-left: 1px solid #3c4043; overflow: auto; font-size: 12px; padding: 8px; }
+    .inspector pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .tabs { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
+    .tabs button { padding: 4px 8px; cursor: pointer; background: #3c4043; border: none; color: var(--text); }
+    .tabs button.on { background: var(--acc); color: #111; }
+    .section { display: none; }
+    .section.on { display: block; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border-bottom: 1px solid #3c4043; padding: 4px; text-align: left; vertical-align: top; }
+    .err { color: #f28b82; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>openspatial-metadata-viz</strong>
+    <span id="hdr-meta"></span>
+  </header>
+  <main>
+    <aside id="file-list"><h3>Files</h3><div id="files"></div></aside>
+    <div class="stage">
+      <div class="toolbar">
+        <label>Line <input type="number" id="line-input" min="0" value="0" /></label>
+        <button type="button" id="btn-prev">Prev</button>
+        <button type="button" id="btn-next">Next</button>
+        <label>sample_id <input type="text" id="seek-id" placeholder="jump in file" style="width:180px" /></label>
+        <button type="button" id="btn-seek">Seek</button>
+        <span id="line-status"></span>
+      </div>
+      <div class="canvas-wrap">
+        <div class="img-box">
+          <img id="view" alt="sample" crossorigin="anonymous" />
+          <canvas id="overlay"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="tabs" id="tabs">
+        <button type="button" data-tab="objects" class="on">Objects</button>
+        <button type="button" data-tab="queries">Queries</button>
+        <button type="button" data-tab="relations">Relations</button>
+        <button type="button" data-tab="aux">Aux</button>
+        <button type="button" data-tab="raw">Raw JSON</button>
+      </div>
+      <div id="panel-objects" class="section on"></div>
+      <div id="panel-queries" class="section"></div>
+      <div id="panel-relations" class="section"></div>
+      <div id="panel-aux" class="section"></div>
+      <div id="panel-raw" class="section"><pre id="raw-json"></pre></div>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let config = { default_scale: 1000 };
+    let state = { path: null, line: 0, line_count: 0, record: null };
+
+    async function loadConfig() {
+      const r = await fetch("/api/config");
+      config = await r.json();
+    }
+
+    function scaleOf(rec) {
+      const s = rec && rec.sample && rec.sample.image && rec.sample.image.coord_scale;
+      if (s != null && s !== "") return Number(s);
+      return config.default_scale || 1000;
+    }
+
+    function normToPx(n, sc, dim) {
+      return (n / sc) * dim;
+    }
+
+    function drawOverlay() {
+      const img = $("view");
+      const canvas = $("overlay");
+      const rec = state.record;
+      if (!img.complete || !rec || !img.naturalWidth) {
+        canvas.width = 0; canvas.height = 0;
+        return;
+      }
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const dispW = img.clientWidth, dispH = img.clientHeight;
+      canvas.width = dispW;
+      canvas.height = dispH;
+      const sx = dispW / w, sy = dispH / h;
+      const sc = scaleOf(rec);
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, dispW, dispH);
+      ctx.lineWidth = 2;
+      const objs = rec.objects || [];
+      objs.forEach((o, i) => {
+        const hue = (i * 47) % 360;
+        ctx.strokeStyle = `hsl(${hue},70%,55%)`;
+        const label = (o.phrase || o.category || o.object_id || "");
+        if (o.bbox_xyxy_norm_1000) {
+          const [x1,y1,x2,y2] = o.bbox_xyxy_norm_1000;
+          const px1 = normToPx(x1, sc, w) * sx, py1 = normToPx(y1, sc, h) * sy;
+          const px2 = normToPx(x2, sc, w) * sx, py2 = normToPx(y2, sc, h) * sy;
+          ctx.strokeRect(px1, py1, px2 - px1, py2 - py1);
+          ctx.fillStyle = `hsl(${hue},70%,55%)`;
+          ctx.font = "12px sans-serif";
+          ctx.fillText(label, px1, Math.max(12, py1 - 4));
+        } else if (o.point_uv_norm_1000) {
+          const [u, v] = o.point_uv_norm_1000;
+          const px = normToPx(u, sc, w) * sx, py = normToPx(v, sc, h) * sy;
+          ctx.beginPath();
+          ctx.arc(px, py, 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      });
+      const rels = (rec.relations || []).filter((r) => r.ref_frame === "image_plane");
+      rels.forEach((r) => {
+        const ev = r.evidence || {};
+        const a = ev.anchor_point_uv_norm_1000, t = ev.target_point_uv_norm_1000;
+        if (!a || !t) return;
+        ctx.strokeStyle = "#ffcc80";
+        ctx.beginPath();
+        ctx.moveTo(normToPx(a[0], sc, w) * sx, normToPx(a[1], sc, h) * sy);
+        ctx.lineTo(normToPx(t[0], sc, w) * sx, normToPx(t[1], sc, h) * sy);
+        ctx.stroke();
+      });
+    }
+
+    function renderInspector() {
+      const rec = state.record;
+      $("raw-json").textContent = rec ? JSON.stringify(rec, null, 2) : "";
+      const po = $("panel-objects"), pq = $("panel-queries"), pr = $("panel-relations"), pa = $("panel-aux");
+      if (!rec) { [po,pq,pr,pa].forEach((p) => p.innerHTML = ""); return; }
+      const rows = (rec.objects || []).map((o) => {
+        const name = o.phrase || o.category || o.object_id;
+        return `<tr><td>${esc(o.object_id)}</td><td>${esc(name)}</td><td>${esc(JSON.stringify(o.bbox_xyxy_norm_1000 || o.point_uv_norm_1000))}</td></tr>`;
+      }).join("");
+      po.innerHTML = `<table><tr><th>id</th><th>label</th><th>geom</th></tr>${rows}</table>`;
+      const qrows = (rec.queries || []).map((q) =>
+        `<tr><td>${esc(q.query_id)}</td><td>${esc(q.query_text)}</td><td>${esc(q.gold_object_id || "")}</td></tr>`).join("");
+      pq.innerHTML = `<table><tr><th>id</th><th>text</th><th>gold</th></tr>${qrows}</table>`;
+      const rr = (rec.relations || []).map((r) =>
+        `<tr><td>${esc(r.ref_frame)}</td><td>${esc(r.anchor_id)}→${esc(r.target_id)}</td><td>${esc(r.predicate)} ${esc((r.components||[]).join(","))}</td></tr>`).join("");
+      pr.innerHTML = `<table><tr><th>frame</th><th>edge</th><th>pred</th></tr>${rr}</table>`;
+      pa.innerHTML = `<pre>${esc(JSON.stringify(rec.aux || {}, null, 2))}</pre>`;
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+
+    async function fetchRecord() {
+      if (!state.path) return;
+      const u = `/api/record?path=${encodeURIComponent(state.path)}&line=${state.line}`;
+      const r = await fetch(u);
+      const j = await r.json();
+      if (j.error) { $("hdr-meta").innerHTML = `<span class="err">${esc(j.error)}</span>`; return; }
+      state.record = j.record;
+      state.line = j.line;
+      state.line_count = j.line_count;
+      $("line-input").value = String(state.line);
+      $("line-status").textContent = `line ${state.line + 1} / ${state.line_count}`;
+      const rec = state.record;
+      const ds = (rec.dataset && rec.dataset.name) || "";
+      const sid = (rec.sample && rec.sample.sample_id) || "";
+      $("hdr-meta").textContent = `${ds} · ${sid}`;
+      const ip = rec.sample && rec.sample.image && rec.sample.image.path;
+      if (ip && ds) {
+        $("view").src = `/api/image?dataset=${encodeURIComponent(ds)}&relpath=${encodeURIComponent(ip)}`;
+      } else {
+        $("view").removeAttribute("src");
+      }
+      renderInspector();
+      $("view").onload = () => { drawOverlay(); };
+    }
+
+    async function buildFileList() {
+      const r = await fetch("/api/tree");
+      const j = await r.json();
+      const root = $("files");
+      root.innerHTML = "";
+      const by = {};
+      (j.files || []).forEach((f) => {
+        const k = f.dataset_dir + "/" + f.split;
+        if (!by[k]) by[k] = [];
+        by[k].push(f);
+      });
+      Object.keys(by).sort().forEach((k) => {
+        const wrap = document.createElement("div");
+        const title = document.createElement("h3");
+        title.textContent = k;
+        wrap.appendChild(title);
+        by[k].forEach((f) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "file";
+          b.textContent = f.name;
+          b.onclick = () => {
+            document.querySelectorAll("aside button.file").forEach((x) => x.classList.remove("active"));
+            b.classList.add("active");
+            state.path = f.rel_path;
+            state.line = 0;
+            fetchRecord();
+          };
+          wrap.appendChild(b);
+        });
+        root.appendChild(wrap);
+      });
+    }
+
+    $("btn-prev").onclick = () => {
+      if (state.line <= 0) return;
+      state.line--;
+      fetchRecord();
+    };
+    $("btn-next").onclick = () => {
+      if (state.line_count && state.line >= state.line_count - 1) return;
+      state.line++;
+      fetchRecord();
+    };
+    $("line-input").onchange = () => {
+      const v = parseInt($("line-input").value, 10);
+      if (!Number.isFinite(v) || v < 0) return;
+      state.line = v;
+      fetchRecord();
+    };
+    $("btn-seek").onclick = async () => {
+      const id = $("seek-id").value.trim();
+      if (!id || !state.path) return;
+      const r = await fetch(`/api/seek?path=${encodeURIComponent(state.path)}&sample_id=${encodeURIComponent(id)}`);
+      const j = await r.json();
+      if (j.error) { alert(j.error); return; }
+      state.line = j.line;
+      fetchRecord();
+    };
+
+    $("tabs").onclick = (e) => {
+      const t = e.target;
+      if (t.tagName !== "BUTTON") return;
+      const name = t.getAttribute("data-tab");
+      document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b === t));
+      document.querySelectorAll(".inspector .section").forEach((s) => s.classList.remove("on"));
+      $("panel-" + name).classList.add("on");
+    };
+
+    window.onresize = () => drawOverlay();
+
+    loadConfig().then(() => buildFileList().then(() => {
+      /* auto-select first file if any */
+      const first = document.querySelector("aside button.file");
+      if (first) first.click();
+    }));
+  </script>
+</body>
+</html>

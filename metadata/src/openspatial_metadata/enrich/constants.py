@@ -6,7 +6,7 @@ Rationale (all norm-space at REF 1000 unless noted):
 - Values are **engineering defaults**: stable QA-ish behaviour, not tuned on a
   specific dataset; change only after measuring on real data.
 
-See ``metadata/plans/2026-04-16_0300_metadata_next/design.md`` §4.2–§4.4.
+See ``metadata/plans/2026-04-15_1658_metadata_next/design.md`` §4.2–§4.4.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ REF_COORD_SCALE = 1000
 
 # --- distances / deltas (same units as norm UV at REF scale) ---
 # Ignore an axis for single-axis output when |delta| is tiny (noise / tie on that axis).
-MIN_ABS_DELTA_U_REF = 12
-MIN_ABS_DELTA_V_REF = 12
+MIN_ABS_DELTA_U_REF = 100
+MIN_ABS_DELTA_V_REF = 100
 # Two representative points closer than this (after IoU check) → relation unreliable.
 NEAR_CENTER_DIST_REF = 16
 

@@ -20,16 +20,21 @@ progress = [
 ]
 dev = [
   "pytest",
+  "Pillow>=9.0",
 ]
 
 [project.scripts]
 openspatial-metadata = "openspatial_metadata.cli:main"
+openspatial-metadata-viz = "openspatial_metadata.viz.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+openspatial_metadata = ["viz/static/index.html"]
 
 # 供 Pylance / BasedPyright 解析 `import openspatial_metadata`（路径相对于本文件所在目录）
 [tool.pyright]

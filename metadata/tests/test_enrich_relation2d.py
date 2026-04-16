@@ -1,4 +1,4 @@
-"""Tests for openspatial_metadata.enrich (plan 2026-04-16_0300_metadata_next)."""
+"""Tests for openspatial_metadata.enrich (plan 2026-04-15_1658_metadata_next)."""
 from __future__ import annotations
 
 import unittest

@@ -18,7 +18,7 @@
 - [x] `metadata/docs/config_yaml_zh.md` — **无需更新**（首轮无 enrich YAML）。
 - [x] `metadata/docs/metadata_spec_v0_zh.md` — **无需更新**。
 - [x] `metadata/README.md` — enrich 库用法与目录树已更新。
-- [x] `metadata/plans/2026-04-16_0300_metadata_next/test_plan.md` — 已随用例勾选 Gate。
+- [x] `metadata/plans/2026-04-15_1658_metadata_next/test_plan.md` — 已随用例勾选 Gate。
 - [x] `metadata/docs/project_progress_zh.md` — 已更新。
 - [ ] 其他：**无**
 

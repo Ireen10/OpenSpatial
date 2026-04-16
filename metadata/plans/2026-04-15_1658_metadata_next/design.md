@@ -1,6 +1,6 @@
 # 方案设计（Design）：2D 关系增强（image_plane）
 
-> 目录：`metadata/plans/2026-04-16_0300_metadata_next/`  
+> 目录：`metadata/plans/2026-04-15_1658_metadata_next/`  
 > 状态：**已定稿（实现以本文为准）** — 与 `metadata/docs/metadata_spec_v0_zh.md` v0 对齐；**输入侧格式本阶段不冻结为唯一 schema**，由 **adapter** 将上游转为 **`MetadataV0`**；**enrich 与 adapter 解耦**，仅在 `MetadataV0` 上补全 `relations` 等（见 §2.2、§7）。
 
 ---

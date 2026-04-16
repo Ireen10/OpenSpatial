@@ -1,6 +1,6 @@
 ## 方案设计（Design）：并行与大规模 metadata CLI
 
-> 状态：**Design 已定稿**（仅 `strict=True`；不实现 `strict=False`）。`plan.md` / `test_plan.md` 随本轮实现编写。上一轮框架见 `metadata/plans/2026-04-14_0100_metadata_framework/`。
+> 状态：**Design 已定稿**（仅 `strict=True`；不实现 `strict=False`）。`plan.md` / `test_plan.md` 随本轮实现编写。上一轮框架见 `metadata/plans/2026-04-14_1737_metadata_framework/`。
 
 ### 背景与目标
 

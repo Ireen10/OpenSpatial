@@ -10,7 +10,7 @@
 
 ## 文档与对外说明
 
-- 已更新：`metadata/README.md`、`metadata/plans/2026-04-16_0300_metadata_next/test_plan.md`（实现勾选）、`metadata/docs/project_progress_zh.md`。
+- 已更新：`metadata/README.md`、`metadata/plans/2026-04-15_1658_metadata_next/test_plan.md`（实现勾选）、`metadata/docs/project_progress_zh.md`。
 - **未改** `metadata/docs/config_yaml_zh.md`（首轮无 enrich YAML，与 plan 一致）。
 
 ## 自测

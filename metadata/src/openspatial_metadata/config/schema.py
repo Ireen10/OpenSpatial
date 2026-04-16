@@ -27,6 +27,16 @@ class SplitSpec(BaseModel):
     inputs: List[str]
 
 
+class VizSpec(BaseModel):
+    """Optional visualization settings (metadata viewer)."""
+
+    class Config:
+        extra = "allow"
+
+    mode: Literal["flat"] = "flat"
+    image_root: Optional[str] = None
+
+
 class DatasetConfig(BaseModel):
     class Config:
         extra = "allow"
@@ -35,6 +45,8 @@ class DatasetConfig(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
     adapter: Optional[AdapterSpec] = None
     splits: List[SplitSpec]
+    output_root: Optional[str] = None
+    viz: Optional[VizSpec] = None
 
 
 class GlobalConfig(BaseModel):

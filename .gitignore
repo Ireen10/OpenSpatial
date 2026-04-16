@@ -24,6 +24,8 @@ config/debug*.yaml
 metadata/src/**/*.egg-info/
 metadata/tests/.tmp_out/
 metadata/tests/.tmp_demo_out/
+metadata/tests/.tmp_refcoco_out/
+metadata_out/
 
 # dataset local notes (do not commit)
 metadata/configs/datasets/**/README.md

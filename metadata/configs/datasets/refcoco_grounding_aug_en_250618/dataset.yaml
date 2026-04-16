@@ -8,6 +8,11 @@ adapter:
 enrich:
   relations_2d: true
   relations_3d: false
+# Metadata viewer: flat tree under image_root (paths match tar-internal relative_path).
+# Relative image_root is resolved against this file's directory (see metadata/docs/config_yaml_zh.md).
+viz:
+  mode: flat
+  image_root: ../../../tests/fixtures/refcoco_viewer_images
 splits:
   - name: train_small
     input_type: jsonl

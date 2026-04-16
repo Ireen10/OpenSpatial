@@ -1,6 +1,6 @@
 ## 执行计划（Plan）：并行 metadata CLI（Linux / strict-only）
 
-> 依据：`metadata/plans/2026-04-15_0200_parallel_metadata_cli/design.md`（已定稿）。本轮**仅** `strict=True`；**仅** `ThreadPoolExecutor`；**不**实现 `strict=False`、**不**实现 `ProcessPoolExecutor`。
+> 依据：`metadata/plans/2026-04-15_0948_parallel_metadata_cli/design.md`（已定稿）。本轮**仅** `strict=True`；**仅** `ThreadPoolExecutor`；**不**实现 `strict=False`、**不**实现 `ProcessPoolExecutor`。
 
 ### 交付物清单
 
@@ -14,7 +14,7 @@
 - [x] `metadata/docs/config_yaml_zh.md`
 - [x] `metadata/docs/metadata_spec_v0_zh.md`：**无**（v0 JSON 形状本轮不变，除非实现中发现矛盾）
 - [x] `metadata/README.md`（若 CLI 参数或推荐命令变化）
-- [x] `metadata/plans/2026-04-15_0200_parallel_metadata_cli/test_plan.md`（**已起草**；实现完成后按用例逐项对齐并勾选）
+- [x] `metadata/plans/2026-04-15_0948_parallel_metadata_cli/test_plan.md`（**已起草**；实现完成后按用例逐项对齐并勾选）
 - [x] `metadata/docs/project_progress_zh.md`（**整轮**收束：实现 + 自测通过 + `change_log.md` 之后；勿仅因文档齐备而更新）
 - [x] 其他：**无**
 

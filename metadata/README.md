@@ -11,12 +11,14 @@
 - 单 JSON 多文件：聚合成 `part-*.jsonl`；checkpoint（`done`）；可选并行（worker 只读 JSON，**主线程单写者**，flush 后写 checkpoint）。
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
 - I/O：`io/json.py`；占位适配器：`adapters/passthrough.py`；归一化：`utils/normalize.py`。
-- **2D 关系增强（`image_plane`）**：`enrich.enrich_relations_2d` 在 **`MetadataV0` 副本**上根据框/点代表点计算 `relations`（单原子或 `components` 复合），与 adapter 解耦；详见 `metadata/plans/2026-04-16_0300_metadata_next/design.md`。
+- **2D 关系增强（`image_plane`）**：`enrich.enrich_relations_2d` 在 **`MetadataV0` 副本**上根据框/点代表点计算 `relations`（单原子或 `components` 复合），与 adapter 解耦；详见 `metadata/plans/2026-04-15_1658_metadata_next/design.md`。
 
 **仍为占位 / 未接入 CLI（与 `plans/`、wiki 文档对齐的后续工作）：**
 
 - OpenSpatial Parquet 行 ↔ metadata 的专用转换、metadata / annotation 的 Parquet 导出（`pyarrow`）。
-- **3D** 关系 enrich、可视化等。
+- **3D** 关系 enrich。
+
+**可视化（v0 已实现）：** `openspatial-metadata-viz` 浏览 `{output_root}/{dataset}/{split}/*.metadata.jsonl`，图像路径为 `dataset.yaml` 中可选的 **`viz.image_root`** + `sample.image.path`（扁平目录，见各数据集 README）。设计见 `metadata/plans/2026-04-15_2240_metadata_visualization/design.md`。
 
 **库用法（2D enrich）**（在已 `pip install -e ./metadata` 的环境中）：
 
@@ -69,6 +71,50 @@ openspatial-metadata --config-root metadata/tests/configs/datasets/demo_dataset/
 openspatial-metadata --config-root metadata/tests/configs/datasets/demo_dataset/dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo --num-workers 4
 ```
 
+### Metadata 可视化（本地 HTTP）
+
+在对应数据集的 `dataset.yaml` 中配置 **`viz.image_root`**（解压后的图像根目录，与 `sample.image.path` 拼接）。然后：
+
+**先安装子工程**（否则没有 `openspatial-metadata-viz` 命令）：
+
+```bash
+pip install -e "./metadata"
+```
+
+安装后可直接使用入口 **`openspatial-metadata-viz`**。若未安装或 PATH 中找不到该命令，可在**仓库根目录**用模块方式启动（不依赖 console script）：
+
+```bash
+# Linux / macOS
+PYTHONPATH=metadata/src python -m openspatial_metadata.viz --config-root metadata/configs/datasets --global-config metadata/configs/global.yaml
+```
+
+```powershell
+# Windows PowerShell（仓库根目录）
+$env:PYTHONPATH = "metadata\src"
+python -m openspatial_metadata.viz --config-root metadata/configs/datasets --global-config metadata/configs/global.yaml
+```
+
+安装完成后，也可与 `openspatial-metadata` 一样直接调用 **`openspatial-metadata-viz`**（参数相同）。
+
+浏览器打开终端提示的地址（默认 `http://127.0.0.1:8765/`）。`--output-root` 可省略（使用 global 默认，或与 ingestion 时一致）。
+
+仓库内已提交占位图：`metadata/tests/fixtures/refcoco_viewer_images/`（与 `refcoco_grounding_aug_en_250618` 的 `dataset.yaml` 中 `viz.image_root` 相对路径对齐）。配合本地跑出的 metadata（例如 `metadata/tests/.tmp_refcoco_out/`）可直接看图：
+
+一行命令（bash / cmd / PowerShell 均可）。**PowerShell 不支持 bash 的 `\` 续行**；多行请用行尾反引号 `` ` ``，或直接用下面这一行：
+
+```bash
+openspatial-metadata-viz --config-root metadata/configs/datasets --global-config metadata/configs/global.yaml --output-root metadata/tests/.tmp_refcoco_out
+```
+
+PowerShell 多行示例（行尾反引号）：
+
+```powershell
+openspatial-metadata-viz `
+  --config-root metadata/configs/datasets `
+  --global-config metadata/configs/global.yaml `
+  --output-root metadata/tests/.tmp_refcoco_out
+```
+
 ## 源码布局
 
 ```
@@ -95,6 +141,10 @@ metadata/
     │   ├── relation2d.py
     │   ├── filters.py
     │   └── constants.py
+    ├── viz/
+    │   ├── cli.py
+    │   ├── server.py
+    │   └── static/index.html
     └── utils/
         └── normalize.py
 ```
@@ -132,4 +182,4 @@ python -m unittest discover -s metadata/tests -p "test_*.py"
 - **Global / Dataset YAML 配置字段说明**：`metadata/docs/config_yaml_zh.md`。
 - **文档如何与代码同步（合并前自检）**：`metadata/docs/docs_sync_convention_zh.md`。
 - **子项目全局进展 / 里程碑**（每完整一轮：设计→计划→测试计划→开发→**自测通过**→`change_log` 后再更新）：`metadata/docs/project_progress_zh.md`。
-- 本阶段设计与测试方案：`metadata/plans/2026-04-14_0100_metadata_framework/`。
+- 本阶段设计与测试方案：`metadata/plans/2026-04-14_1737_metadata_framework/`。
