@@ -12,7 +12,7 @@ enrich:
 # Relative image_root is resolved against this file's directory (see metadata/docs/config_yaml_zh.md).
 viz:
   mode: flat
-  image_root: ../../../tests/fixtures/refcoco_viewer_images
+  image_root: ../../../fixtures/refcoco_viewer_images
 splits:
   - name: train_small
     input_type: jsonl
