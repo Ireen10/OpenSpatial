@@ -29,3 +29,6 @@ metadata_out/
 
 # dataset local notes (do not commit)
 metadata/configs/datasets/**/README.md
+
+# metadata 子项目：本地数据集配置（不提交；测试用配置在 metadata/tests/configs/datasets/）
+metadata/configs/datasets/

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -25,17 +26,33 @@ class TestCliE2ERefcocoSmall(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            cfg = "metadata/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml"
-            main(
-                [
-                    "--config-root",
-                    cfg,
-                    "--global-config",
-                    str(global_path),
-                    "--output-root",
-                    str(out_root),
-                ]
+            cfg = (
+                Path(__file__).resolve().parents[1]
+                / "tests"
+                / "configs"
+                / "datasets"
+                / "refcoco_grounding_aug_en_250618"
+                / "dataset.yaml"
             )
+            # CLI input glob expansion is cwd-dependent; run from repo root for stable tests.
+            # __file__ = .../OpenSpatial/metadata/tests/test_cli_e2e_refcoco_small.py
+            # parents[2] = .../OpenSpatial
+            repo_root = Path(__file__).resolve().parents[2]
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(repo_root)
+                main(
+                    [
+                        "--config-root",
+                        str(cfg),
+                        "--global-config",
+                        str(global_path),
+                        "--output-root",
+                        str(out_root),
+                    ]
+                )
+            finally:
+                os.chdir(old_cwd)
 
             out_path = (
                 out_root

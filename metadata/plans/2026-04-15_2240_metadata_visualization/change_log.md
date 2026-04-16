@@ -18,7 +18,7 @@
 
 ### 配置示例
 
-- `metadata/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml` 启用 `viz.image_root`（相对 `dataset.yaml` 解析至 `metadata/tests/fixtures/refcoco_viewer_images`）。
+- `metadata/tests/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml` 启用 `viz.image_root`（相对 `dataset.yaml` 解析至 `metadata/tests/fixtures/refcoco_viewer_images`）。
 
 ### 资源
 

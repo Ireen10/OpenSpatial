@@ -17,7 +17,7 @@
     - **`GET` 图像**：`image_root` 来自**当前记录对应数据集**的 `dataset.yaml`（通过 `record.dataset.name` 与配置 `name` 匹配，或用户显式选中数据集配置路径）；路径解析为 `Path(image_root) / sample.image.path`，不存在则 404 + 明确错误信息。
   - 前端：单页（React 或轻量静态页），实现 design 中的 Header / Canvas / Inspector；`image_plane` 叠加 bbox、关系箭头；非 `image_plane` relation 仅列表。
 - **配置**
-  - 在至少一个示例数据集（如 `metadata/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml`）中增加 **`viz.image_root`** 占位或注释示例（路径用说明性文字，不绑定本机绝对路径）。
+  - 在测试配置根（如 `metadata/tests/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml`）中增加 **`viz.image_root`** 示例（路径可为相对路径，便于仓库内 fixtures 复用）。
 - **样例 / fixtures**
   - 测试用临时目录：最小 `*.metadata.jsonl` 一行 + 对应假图像文件，验证拼接路径可读。
 
@@ -36,11 +36,11 @@
 
 1. **配置模型与 YAML 约定**
    - **目标**：可视化读取 `image_root` / 默认 `output_root` 时优先来自 **同一 `dataset.yaml`**，与 `openspatial-metadata` 行为一致。
-   - **文件**：`metadata/src/openspatial_metadata/config/schema.py`；示例 `metadata/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml`。
+   - **文件**：`metadata/src/openspatial_metadata/config/schema.py`；示例 `metadata/tests/configs/datasets/refcoco_grounding_aug_en_250618/dataset.yaml`。
    - **完成条件**：`load_dataset_config` 能解析 `viz`；文档中字段名与类型表一致；无 `viz` 时行为与现网兼容（ingestion 不受影响）。
 
 2. **数据集配置解析辅助（viz 用）**
-   - **目标**：给定 `config_root`（如 `metadata/configs/datasets`）或单个 `dataset.yaml`，建立 **`dataset.name` → 已加载配置**（含 `viz`、`output_root`）的索引，供后端在浏览 `metadata_out/...` 时匹配 `record["dataset"]["name"]`。
+   - **目标**：给定 `config_root`（如 `metadata/tests/configs/datasets`）或单个 `dataset.yaml`，建立 **`dataset.name` → 已加载配置**（含 `viz`、`output_root`）的索引，供后端在浏览 `metadata_out/...` 时匹配 `record["dataset"]["name"]`。
    - **文件**：`metadata/src/openspatial_metadata/viz/...`（或 `config/` 下小模块）。
    - **完成条件**：单元测试：两个 mock yaml 不同 `name`，解析后索引正确；缺失 `viz` 时返回空 `image_root` 而非抛错。
 

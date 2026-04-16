@@ -85,13 +85,13 @@ pip install -e "./metadata"
 
 ```bash
 # Linux / macOS
-PYTHONPATH=metadata/src python -m openspatial_metadata.viz --config-root metadata/configs/datasets --global-config metadata/configs/global.yaml
+PYTHONPATH=metadata/src python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets --global-config metadata/configs/global.yaml
 ```
 
 ```powershell
 # Windows PowerShell（仓库根目录）
 $env:PYTHONPATH = "metadata\src"
-python -m openspatial_metadata.viz --config-root metadata/configs/datasets --global-config metadata/configs/global.yaml
+python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets --global-config metadata/configs/global.yaml
 ```
 
 安装完成后，也可与 `openspatial-metadata` 一样直接调用 **`openspatial-metadata-viz`**（参数相同）。
@@ -103,14 +103,14 @@ python -m openspatial_metadata.viz --config-root metadata/configs/datasets --glo
 一行命令（bash / cmd / PowerShell 均可）。**PowerShell 不支持 bash 的 `\` 续行**；多行请用行尾反引号 `` ` ``，或直接用下面这一行：
 
 ```bash
-openspatial-metadata-viz --config-root metadata/configs/datasets --global-config metadata/configs/global.yaml --output-root metadata/tests/.tmp_refcoco_out
+openspatial-metadata-viz --config-root metadata/tests/configs/datasets --global-config metadata/configs/global.yaml --output-root metadata/tests/.tmp_refcoco_out
 ```
 
 PowerShell 多行示例（行尾反引号）：
 
 ```powershell
 openspatial-metadata-viz `
-  --config-root metadata/configs/datasets `
+  --config-root metadata/tests/configs/datasets `
   --global-config metadata/configs/global.yaml `
   --output-root metadata/tests/.tmp_refcoco_out
 ```
