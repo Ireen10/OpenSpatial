@@ -14,7 +14,6 @@ my_scripts
 **/__pycache__/
 output/
 vis/
-scripts/
 config/debug*.yaml
 # 仅忽略仓库根目录的 tests/；勿用 tests/，否则会误伤 metadata/tests/ 等子目录
 /tests/
