@@ -156,6 +156,42 @@ class TestGroundingQAAdapter(unittest.TestCase):
         self.assertEqual(out["objects"][0]["bbox_xyxy_norm_1000"], [0, 0, 111, 111])
         self.assertEqual(out["objects"][1]["bbox_xyxy_norm_1000"], [222, 222, 333, 333])
 
+    def test_stray_box_not_attached_to_previous_ref(self):
+        record = self._base_record()
+        record["id"] = "sample#stray_box"
+        record["data"].extend(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "type": "string",
+                                "format": "utf-8",
+                                "string": (
+                                    "<|object_ref_start|>obj1<|object_ref_end|>"
+                                    "<|box_start|>(001,002),(003,004)<|box_end|>"
+                                    " some text in between "
+                                    "<|box_start|>(010,020),(030,040)<|box_end|>"  # stray, should be ignored
+                                    "<|object_ref_start|>obj2<|object_ref_end|>"
+                                    "<|box_start|>(050,060),(070,080)<|box_end|>"
+                                ),
+                            },
+                        }
+                    ],
+                }
+            ]
+        )
+        out = self._run(record)
+        self.assertEqual(len(out["queries"]), 2)
+        self.assertEqual(len(out["objects"]), 2)
+        self.assertEqual(out["queries"][0]["query_text"], "obj1")
+        self.assertEqual(out["queries"][0]["count"], 1)
+        self.assertEqual(out["objects"][0]["bbox_xyxy_norm_1000"], [1, 2, 3, 4])
+        self.assertEqual(out["queries"][1]["query_text"], "obj2")
+        self.assertEqual(out["objects"][1]["bbox_xyxy_norm_1000"], [50, 60, 70, 80])
+
     def test_only_ref_without_box_is_skipped(self):
         record = self._base_record()
         record["id"] = "sample#only_ref"

@@ -74,7 +74,12 @@ def _extract_assistant_texts(record: Dict[str, Any]) -> List[str]:
 def _parse_ref_boxes(text: str) -> List[Tuple[str, List[List[int]]]]:
     """
     Return a list of (ref_exp, boxes_xyxy) parsed from one assistant text.
-    Boxes are only associated to a ref when they appear after that ref and before the next ref.
+    Boxes are only associated to a ref when they appear **immediately after** that ref
+    (allowing whitespace/newlines) and are contiguous.
+
+    Rationale: some datasets can contain stray/isolated ``<|box_start|>...<|box_end|>``
+    segments not preceded by an ``object_ref``; we must avoid incorrectly attaching those
+    boxes to the previous ref.
     """
     out: List[Tuple[str, List[List[int]]]] = []
     refs = list(_REF_RE.finditer(text))
@@ -85,13 +90,19 @@ def _parse_ref_boxes(text: str) -> List[Tuple[str, List[List[int]]]]:
         ref = m.group(1).strip()
         if not ref:
             continue
-        start = m.end()
-        end = refs[idx + 1].start() if idx + 1 < len(refs) else len(text)
-        seg = text[start:end]
         boxes: List[List[int]] = []
-        for bm in _BOX_RE.finditer(seg):
+        pos = m.end()
+        # Consume consecutive box markers immediately after ref.
+        while pos < len(text):
+            # Allow whitespace/newlines between ref and boxes.
+            while pos < len(text) and text[pos].isspace():
+                pos += 1
+            bm = _BOX_RE.match(text, pos)
+            if bm is None:
+                break
             x1, y1, x2, y2 = (int(bm.group(i)) for i in range(1, 5))
             boxes.append([x1, y1, x2, y2])
+            pos = bm.end()
         if boxes:
             out.append((ref, boxes))
     return out
