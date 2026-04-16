@@ -170,6 +170,16 @@ def _maybe_relation_for_pair(
     adu, adv = abs(du), abs(dv)
 
     if adu < min_du and adv < min_dv:
+        dropped_candidates.append(
+            {
+                "anchor_id": anchor.object_id,
+                "target_id": target.object_id,
+                "reason": "tiny_delta",
+                "delta_uv": [int(round(du)), int(round(dv))],
+                "min_abs_delta_u": float(min_du),
+                "min_abs_delta_v": float(min_dv),
+            }
+        )
         return None
 
     h_ok = adu >= min_du

@@ -156,6 +156,16 @@ class TestEnrichPairRules(unittest.TestCase):
         self.assertEqual(len(md.relations), 0)
         self.assertTrue(any(x["reason"] == "near_center" for x in md.aux["enrich_2d"]["dropped_relation_candidates"]))
 
+    def test_r1_2b_tiny_delta_is_recorded(self):
+        # delta_uv just below min thresholds on both axes, but not "near_center"
+        # (dist is ~140 at REF scale, while near_center threshold is 100).
+        a = _box("a#0", [0, 0, 10, 10])  # center (5,5)
+        b = _box("b#0", [99, 99, 109, 109])  # center (104,104) => du=dv=99
+        md = enrich_relations_2d(_meta(a, b), object_filter_options=ObjectFilterOptions(min_area_abs=0))
+        self.assertEqual(len(md.relations), 0)
+        drops = md.aux["enrich_2d"]["dropped_relation_candidates"]
+        self.assertTrue(any(x["reason"] == "tiny_delta" for x in drops))
+
     def test_r1_3_anchor_is_lexicographically_smaller_id(self):
         z = _box("z#0", [500, 100, 550, 160])
         a = _box("a#0", [100, 100, 150, 160])
