@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-**adapter→enrich→写出** 的最小端到端链路已跑通，并补齐了可批量跑的工程细节（绝对路径 glob、断点续传按 dataset/split 隔离、tqdm 进度条默认开启、dataset_path 追溯）；后续重点是规模化接入真实数据集与补齐 3D enrich、严格/容错策略与 CI。
+**adapter→enrich→写出** 链路已跑通；在此基础上 **sample 级 `MetadataV0` → 2D 空间关系 QA 的 annotation task（首轮）** 已落地（`relation_id`、三类问法、双框抑制、artifact 脚本与聚焦单测）。下一步按新计划推进（例如 parquet 产线、补 `metadata_spec_v0` 中 `relation_id`、CI / `test_enrich_relation2d` gate 等）。
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-17** | **2D 空间关系 annotation（首轮）**：`RelationV0.relation_id`（解析自动补齐）+ `enrich_relations_2d` 统一 id；新 task `task/annotation/spatial_relation_2d.py`、demo 配置、`relation_2d_prompt_templates`；同指代短槽位、双框 tier 排序 + `dual_box_keep_prob`、artifact 生成脚本与聚焦 UT。收束见 `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/change_log.md`。 |
 | **2026-04-16** | **断点续传体验优化**：checkpoint 目录改为按 `output_root/{dataset}/{split}/.checkpoints` 隔离，支持只重跑某个 dataset/split；兼容读取旧的 `output_root/.checkpoints`（只读 fallback）；新增 UT 覆盖并通过。 |
 | **2026-04-16** | **CLI 可用性/可观测性**：`inputs` 支持绝对路径 glob（修复 `Path.glob` 对非相对 pattern 的限制）；进度展示默认使用 `tqdm`（多 worker 多进度条，每个 worker/文件一个 bar），若环境无 tqdm 自动回退到 log；仍保留 stderr 日志用于关键事件。 |
 | **2026-04-16** | **schema & 追溯信息**：`dataset.dataset_path` 加入 schema，并由 CLI 自动注入当前 dataset.yaml 路径；`GroundingQAAdapter` 补齐 `objects[].phrase` 与 `queries[].query_type` 默认值（并支持 `ds.meta.query_type` 覆盖）；`ds.meta` 注入时过滤掉 dataset 保留字段避免臃肿；同步更新 wiki 文档对齐 `query_type` 推荐取值。 |
@@ -30,6 +31,7 @@
 
 ## 下一步 TODO（按建议优先级，随实现勾选）
 
+- [ ] **metadata_spec_v0**：在 `metadata/docs/metadata_spec_v0_zh.md` 补一节 `RelationV0.relation_id`（格式、自动生成、与 QA `meta` 追溯对齐）；与首轮 annotation 交付对齐。  
 - [ ] **CI**：在 Linux 上跑 `pytest metadata/tests`（若仓库尚无 workflow，可在 OpenSpatial 根或子项目加一条）。  
 - [ ] **规模化接入真实数据**：为每个真实数据集补齐 `datasets/<name>/dataset.yaml`（含 inputs/glob、output_root、meta、enrich 开关），并补“样例+解析约束”的 plans。  
 - [ ] **3D enrich**：定义 `relations_3d` 的 enrich 入口与实现，打通 `enrich.relations_3d` 开关。  
@@ -42,6 +44,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/` | **已交付（首轮实现 + 收束）**：2D 空间关系 annotation task + `relation_id`；见该目录 `change_log.md`、`plan.md` 收束节 |
 | `metadata/plans/2026-04-15_2152_checkpoint_scoped/` | **已交付**：checkpoint 按 dataset/split 隔离 + 旧位置兼容读取；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-15_1658_metadata_next/` | **已交付（首轮库+测）**：2D enrich；细节见该目录 `change_log.md` |
 | `metadata/plans/2026-04-15_0948_parallel_metadata_cli/` | **已交付**（实现 + 自测 + `change_log.md`；细节见该目录） |

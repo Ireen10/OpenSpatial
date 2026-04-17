@@ -1,0 +1,38 @@
+dataset:
+  modality: image
+  dataset_name: image_base
+  data_dir: /path/to/metadata_samples.parquet
+
+pipeline:
+  file_name: base_pipeline
+  class_name: BasePipeline
+
+  stages:
+    annotation_stage:
+      -
+        file_name: spatial_relation_2d
+        method: AnnotationGenerator
+        image_root: /path/to/image_root
+        # When anchor/target surface names are both unique: probability of using text only (no box).
+        unique_text_only_prob: 0.82
+        # When both ends require a drawn box (duplicate names etc.): keep only this fraction of such QA.
+        dual_box_keep_prob: 0.1
+        # Prefer relation edges that tend to need fewer boxes when assigning sub_tasks to edges.
+        prioritize_low_mark_relations: true
+        partial_correct_ratio_threshold: 0.75
+        axis_close_ratio_threshold: 0.2
+        shortage_randomness: 0.15
+        sub_tasks:
+          single_axis: 2
+          full_sentence: 2
+          judgment: 2
+        keep_data_columns:
+          - question
+          - answer
+          - meta
+          - QA_images
+          - question_tags
+          - question_types
+        use_multi_processing: false
+        num_workers: 8
+        output_dir:

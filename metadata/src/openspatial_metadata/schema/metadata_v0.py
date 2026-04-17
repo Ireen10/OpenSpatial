@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
 
 class DatasetV0(BaseModel):
@@ -53,6 +53,7 @@ class RelationV0(BaseModel):
     class Config:
         extra = "allow"
 
+    relation_id: Optional[str] = None
     anchor_id: str
     target_id: str
     predicate: str
@@ -102,4 +103,37 @@ class MetadataV0(BaseModel):
     @staticmethod
     def make_query_id(prefix: str, index: int) -> str:
         return f"{prefix}#{index}"
+
+    @staticmethod
+    def make_relation_id(index: int) -> str:
+        return f"relation#{index}"
+
+    @staticmethod
+    def ensure_relation_ids(relations: List[RelationV0]) -> List[RelationV0]:
+        used: set[str] = set()
+        next_index = 0
+
+        for rel in relations:
+            if rel.relation_id:
+                used.add(rel.relation_id)
+                if rel.relation_id.startswith("relation#"):
+                    suffix = rel.relation_id.split("#", 1)[1]
+                    if suffix.isdigit():
+                        next_index = max(next_index, int(suffix) + 1)
+
+        for rel in relations:
+            if rel.relation_id:
+                continue
+            while MetadataV0.make_relation_id(next_index) in used:
+                next_index += 1
+            rel.relation_id = MetadataV0.make_relation_id(next_index)
+            used.add(rel.relation_id)
+            next_index += 1
+        return relations
+
+    @root_validator(skip_on_failure=True)
+    def _assign_relation_ids(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        relations = values.get("relations") or []
+        values["relations"] = cls.ensure_relation_ids(relations)
+        return values
 

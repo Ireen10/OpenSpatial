@@ -311,7 +311,7 @@ def enrich_relations_2d(
             if rel is not None:
                 new_rels.append(rel)
 
-    md.relations = base_relations + new_rels
+    md.relations = MetadataV0.ensure_relation_ids(base_relations + new_rels)
     md.aux.setdefault("enrich_2d", {})
     md.aux["enrich_2d"].update(
         {
