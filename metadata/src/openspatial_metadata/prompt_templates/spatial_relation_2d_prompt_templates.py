@@ -54,24 +54,33 @@ def _fmt(s: str, **kwargs: str) -> str:
 # 1) Task description pools (shared across styles)
 TASK_DESCRIPTION_POOL = [
     "You are given an image. Answer using only what you can see about where the objects are in the picture.",
-    "Base your answer on the objects’ positions in the image. Do not rely on real-world assumptions (e.g., depth).",
+    "Consider the relative positions of {target} and {anchor} in the image provided.",
+    "Answer based on the 2D image plane locations of {target} and {anchor}.",
 ]
 
 # 2) Question template pools (per style)
 FULL_SENTENCE_QUESTION_POOL = [
-    "Determine the 2D spatial relation between {target} and {anchor} in the image plane.",
-    "Based on their locations in the image plane, describe where {target} is with respect to {anchor}.",
-    "Look only at the 2D image plane and state the relative position of {target} with respect to {anchor}.",
+    "Determine the spatial relation between {target} and {anchor} in the image plane.",
+    "Describe where {target} is located with respect to {anchor}.",
+    "State the relative position of {target} with respect to {anchor}.",
+    "Where is {target} located with respect to {anchor}?",
+    "In which direction is {target} located relative to {anchor}?",
 ]
 
 SINGLE_AXIS_QUESTION_POOL = [
-    "In the image plane, compare {target} and {anchor} along the {axis_name} direction. Where is {target} relative to {anchor}?\nOptions: A. {option_a} B. {option_b}",
+    "Compare {target} and {anchor} along the {axis_name} direction. Where is {target} relative to {anchor}?\nOptions: A. {option_a} B. {option_b}",
     "Along the {axis_name} axis in the image, where is {target} with respect to {anchor}?\nOptions: A. {option_a} B. {option_b}",
+    "Only considering {axis_name} position, is {target} on the {option_a} side or the {option_b} side of {anchor}?\nOptions: A. {option_a} B. {option_b}",
+    "In terms of {axis_name} placement in the picture, where is {target} compared with {anchor}?\nOptions: A. {option_a} B. {option_b}",
+    "Looking at the {axis_name} direction only, which option best describes where {target} is relative to {anchor}?\nOptions: A. {option_a} B. {option_b}",
 ]
 
 JUDGMENT_QUESTION_POOL = [
-    "In the 2D image plane, judge whether this statement is correct: {statement}.",
-    "Based only on the image-plane positions, evaluate this statement: {statement}.",
+    "Judge whether this statement is correct: {statement}.",
+    "Evaluate this statement: {statement}.",
+    "Is this statement true based on the picture: {statement}?",
+    "Decide if the following is accurate: {statement}",
+    "Based on where the objects appear, is this statement right or wrong: {statement}?",
 ]
 
 # 3) Instruction-following pools (per style)
