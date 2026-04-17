@@ -147,16 +147,6 @@ MARKED_REF_WITH_HINT_POOL = [
 # Render API (called by QA logic)
 # ----------------------------
 
-def render_full_sentence_question(rng: random.Random, *, anchor: str, target: str) -> str:
-    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
-    q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
-    # Backward-compat helper: this function renders only the prompt side.
-    mode = rng.choice(list(FULL_SENTENCE_INSTRUCTIONS_BY_MODE.keys()))
-    ins_pool = FULL_SENTENCE_INSTRUCTIONS_BY_MODE.get(mode) or [""]
-    ins = rng.choice(ins_pool)
-    return _join_parts([task, q, ins])
-
-
 def render_full_sentence_answer(rng: random.Random, *, anchor: str, target: str, direction: str) -> str:
     # Keep answer variations fully within templates.
     return render_full_sentence_answer_by_mode(
@@ -219,30 +209,6 @@ def render_full_sentence_qa_pair_with_modes(
     question = _join_parts([task, q, ins])
     answer = render_full_sentence_answer_by_mode(rng, mode=ans_mode, anchor=anchor, target=target, direction=direction)
     return question, answer, inst_mode, ans_mode
-
-
-def render_single_axis_question(
-    rng: random.Random,
-    *,
-    anchor: str,
-    target: str,
-    axis_name: str,
-    option_a: str,
-    option_b: str,
-) -> str:
-    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
-    q = _fmt(
-        rng.choice(SINGLE_AXIS_QUESTION_POOL),
-        anchor=anchor,
-        target=target,
-        axis_name=axis_name,
-        option_a=option_a,
-        option_b=option_b,
-    )
-    mode = rng.choice(list(SINGLE_AXIS_INSTRUCTIONS_BY_MODE.keys()))
-    ins_pool = SINGLE_AXIS_INSTRUCTIONS_BY_MODE.get(mode) or [""]
-    ins = rng.choice(ins_pool)
-    return _join_parts([task, q, ins])
 
 
 def render_single_axis_answer_by_mode(
