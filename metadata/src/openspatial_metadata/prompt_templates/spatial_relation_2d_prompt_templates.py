@@ -4,47 +4,124 @@ import random
 from typing import Dict, Tuple
 
 """
-To Cursor Agent:
-以下是我的设想：
-1. prompt的构成应该拆成三部分：
-1）任务描述：也就是告诉模型应该专注于图像平面上的空间方位关系（比如你下面写的Consider the positions of {target} and {anchor} in the image plane.） 
-2）问题模板：query的主体内容，必须有。
-3）指令遵从部分：例如选择题为仅输出回答。判断题为输出判断结果，如果正确怎么样，如果错误怎么样。自由语言描述要求模型如何回答，是完整回答句子，还是回答一个简短的方位。
+Prompt template design intent (for maintainers):
 
-其中任务描述是需要的，因为要和3D空间关系的识别区分开，也就是说至少要让模型知道当前需要识别图像中的位置。
-问题模板是必需的，问法要接近人类，不要生硬地问。单轴问题需要模型聚焦哪个轴应当放在这一部分，并且不要用Focus on the image-plane relation between {target} and {anchor}.这种方式说明，可以换一种问法比如说target和anchor在水平方向上的相对位置时怎样的。融入到问题中。
-指令遵从部分是可以为空的，并且需要针对不同题目进行设计。
+We build prompts from 3 optional parts:
 
-然后每个部分都应该给一些备选描述，在生成prompt时从备选描述中选择并拼接即可（需要注意大小写问题，包括{target}{anchor}的首字母大小写问题）
+1) task description (distinguish 2D image-plane vs 3D spatial reasoning)
+2) question template (the main query)
+3) instruction-following (optional, per question type)
 
-answer则需要每种问题各自设计模板，对于有指令遵从要求的，使用某个固定的回答方式。对于没有指令遵从要求的，从回答方式中随机选择一种形式进行回答。（定性来说是这样，如果具体有啥问题再讨论）
+Goal: after wiring is done, prompt diversity work should mostly edit the candidate pools below,
+without touching QA generation logic.
 """
 
-FULL_SENTENCE_QUESTION_TEMPLATES = [
+
+# ----------------------------
+# Shared helpers (do not edit unless needed)
+# ----------------------------
+
+def _cap_first(s: str) -> str:
+    s2 = (s or "").strip()
+    if not s2:
+        return s2
+    return s2[0].upper() + s2[1:]
+
+
+def _join_parts(parts: list[str]) -> str:
+    xs = [p.strip() for p in parts if isinstance(p, str) and p.strip()]
+    return "\n\n".join(xs)
+
+
+def _fmt(s: str, **kwargs: str) -> str:
+    """
+    Format helper with optional capitalization variants.
+    Provides:
+    - anchor / target
+    - Anchor / Target (cap-first)
+    """
+    return s.format(
+        **kwargs,
+        Anchor=_cap_first(kwargs.get("anchor", "")),
+        Target=_cap_first(kwargs.get("target", "")),
+    )
+
+
+# ----------------------------
+# Candidate pools (edit these for diversity)
+# ----------------------------
+
+# 1) Task description pools (shared across styles)
+TASK_DESCRIPTION_POOL = [
+    "You are given an image. Focus ONLY on the 2D image plane (pixel-space) positions when answering.",
+    "Answer based on the 2D image plane locations of the objects (ignore any 3D/real-world depth assumptions).",
+]
+
+# 2) Question template pools (per style)
+FULL_SENTENCE_QUESTION_POOL = [
     "Determine the 2D spatial relation between {target} and {anchor} in the image plane.",
     "Based on their locations in the image plane, describe where {target} is with respect to {anchor}.",
     "Look only at the 2D image plane and state the relative position of {target} with respect to {anchor}.",
 ]
 
-SINGLE_AXIS_QUESTION_TEMPLATES = [
-    "Consider the positions of {target} and {anchor} in the image plane. Where is {target} with respect to {anchor} along the {axis_name} axis? Select one option.\nOptions: A. {option_a} B. {option_b}",
-    "Focus on the image-plane relation between {target} and {anchor}. Along the {axis_name} axis, choose the correct location of {target} relative to {anchor}.\nOptions: A. {option_a} B. {option_b}",
-    "In the image plane, compare {target} with {anchor} only along the {axis_name} axis. Pick the correct answer.\nOptions: A. {option_a} B. {option_b}",
+SINGLE_AXIS_QUESTION_POOL = [
+    "In the image plane, compare {target} and {anchor} along the {axis_name} direction. Where is {target} relative to {anchor}?\nOptions: A. {option_a} B. {option_b}",
+    "Along the {axis_name} axis in the image, where is {target} with respect to {anchor}?\nOptions: A. {option_a} B. {option_b}",
 ]
 
-JUDGMENT_QUESTION_TEMPLATES = [
-    "Consider the image-plane relation between {target} and {anchor}. Is the following statement correct: {statement}? If it is correct, answer \"Correct.\" If it is partially correct, answer \"Partially correct,\" followed by a more precise relation. If it is incorrect, answer \"Incorrect,\" followed by the correct relation.",
-    "Look only at the 2D image plane. Judge whether this statement is correct: {statement}. Respond with \"Correct.\", or \"Partially correct,\" plus a more accurate description, or \"Incorrect,\" plus the correct description.",
-    "Based on the image-plane positions of {target} and {anchor}, evaluate this statement: {statement}. Follow this format: \"Correct.\", or \"Partially correct,\" with a refinement, or \"Incorrect,\" with the right relation.",
+JUDGMENT_QUESTION_POOL = [
+    "In the 2D image plane, judge whether this statement is correct: {statement}.",
+    "Based only on the image-plane positions, evaluate this statement: {statement}.",
 ]
 
+# 3) Instruction-following pools (per style)
+FULL_SENTENCE_INSTRUCTION_POOL = [
+    # Optional: leave empty to allow free-form answers.
+    "Answer with one complete sentence.",
+]
+
+SINGLE_AXIS_INSTRUCTION_POOL = [
+    "Respond with ONLY the letter A or B.",
+]
+
+JUDGMENT_INSTRUCTION_POOL = [
+    "If correct, answer \"Correct.\" If partially correct, answer \"Partially correct,\" then provide the more precise relation. If incorrect, answer \"Incorrect,\" then provide the correct relation.",
+]
+
+# Answer template pools (per style)
+FULL_SENTENCE_ANSWER_POOL = [
+    "In the image plane, {target} is {direction} {anchor}.",
+]
+
+# SINGLE_AXIS answers are constrained by instruction-following; keep as labels.
+JUDGMENT_ANSWER_CORRECT_POOL = ["Correct."]
+JUDGMENT_ANSWER_PARTIAL_POOL = ["Partially correct. {full_sentence}"]
+JUDGMENT_ANSWER_INCORRECT_POOL = ["Incorrect. {full_sentence}"]
+
+# Marked reference text pools
+MARKED_REF_SAME_PHRASE_POOL = [
+    "the object in the {color} box",
+]
+MARKED_REF_WITH_HINT_POOL = [
+    "{name} (the object in the {color} box in the image)",
+]
+
+
+# ----------------------------
+# Render API (called by QA logic)
+# ----------------------------
 
 def render_full_sentence_question(rng: random.Random, *, anchor: str, target: str) -> str:
-    return rng.choice(FULL_SENTENCE_QUESTION_TEMPLATES).format(target=target, anchor=anchor)
+    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
+    ins = rng.choice(FULL_SENTENCE_INSTRUCTION_POOL) if FULL_SENTENCE_INSTRUCTION_POOL else ""
+    return _join_parts([task, q, ins])
 
 
 def render_full_sentence_answer(*, anchor: str, target: str, direction: str) -> str:
-    return f"In the image plane, {target} is {direction} {anchor}."
+    # Keep answer variations fully within templates.
+    tpl = FULL_SENTENCE_ANSWER_POOL[0] if FULL_SENTENCE_ANSWER_POOL else "In the image plane, {target} is {direction} {anchor}."
+    return _fmt(tpl, anchor=anchor, target=target, direction=direction)
 
 
 def render_single_axis_question(
@@ -56,22 +133,33 @@ def render_single_axis_question(
     option_a: str,
     option_b: str,
 ) -> str:
-    return rng.choice(SINGLE_AXIS_QUESTION_TEMPLATES).format(
-        target=target, anchor=anchor, axis_name=axis_name, option_a=option_a, option_b=option_b
+    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    q = _fmt(
+        rng.choice(SINGLE_AXIS_QUESTION_POOL),
+        anchor=anchor,
+        target=target,
+        axis_name=axis_name,
+        option_a=option_a,
+        option_b=option_b,
     )
+    ins = rng.choice(SINGLE_AXIS_INSTRUCTION_POOL) if SINGLE_AXIS_INSTRUCTION_POOL else ""
+    return _join_parts([task, q, ins])
 
 
 def render_single_axis_answer(*, truth: str, option_a: str, option_b: str) -> str:
-    # Output is the multiple-choice label.
+    # Output is the multiple-choice label (instruction-following constraint).
     return "A" if truth == option_a else "B"
 
 
 def render_judgment_statement(*, anchor: str, target: str, statement_direction: str) -> str:
-    return f"{target} is {statement_direction} {anchor} in the image plane."
+    return _fmt("{target} is {statement_direction} {anchor} in the image plane.", anchor=anchor, target=target, statement_direction=statement_direction)
 
 
 def render_judgment_question(rng: random.Random, *, anchor: str, target: str, statement: str) -> str:
-    return rng.choice(JUDGMENT_QUESTION_TEMPLATES).format(target=target, anchor=anchor, statement=statement)
+    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    q = _fmt(rng.choice(JUDGMENT_QUESTION_POOL), anchor=anchor, target=target, statement=statement)
+    ins = rng.choice(JUDGMENT_INSTRUCTION_POOL) if JUDGMENT_INSTRUCTION_POOL else ""
+    return _join_parts([task, q, ins])
 
 
 def render_judgment_answer(
@@ -81,19 +169,25 @@ def render_judgment_answer(
     target: str,
     true_direction: str,
 ) -> str:
+    full_sentence = render_full_sentence_answer(anchor=anchor, target=target, direction=true_direction)
     if mode == "correct":
-        return "Correct."
+        tpl = JUDGMENT_ANSWER_CORRECT_POOL[0] if JUDGMENT_ANSWER_CORRECT_POOL else "Correct."
+        return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
     if mode == "partial":
-        return f"Partially correct. In the image plane, {target} is {true_direction} {anchor}."
-    return f"Incorrect. In the image plane, {target} is {true_direction} {anchor}."
+        tpl = JUDGMENT_ANSWER_PARTIAL_POOL[0] if JUDGMENT_ANSWER_PARTIAL_POOL else "Partially correct. {full_sentence}"
+        return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
+    tpl = JUDGMENT_ANSWER_INCORRECT_POOL[0] if JUDGMENT_ANSWER_INCORRECT_POOL else "Incorrect. {full_sentence}"
+    return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
 
 
 def render_marked_ref_same_phrase(*, color: str) -> str:
-    return f"the object in the {color} box"
+    tpl = MARKED_REF_SAME_PHRASE_POOL[0] if MARKED_REF_SAME_PHRASE_POOL else "the object in the {color} box"
+    return tpl.format(color=color)
 
 
 def render_marked_ref_with_hint(*, name: str, color: str) -> str:
-    return f"{name} (the object in the {color} box in the image)"
+    tpl = MARKED_REF_WITH_HINT_POOL[0] if MARKED_REF_WITH_HINT_POOL else "{name} (the object in the {color} box in the image)"
+    return tpl.format(name=name, color=color)
 
 
 def render_marker_meta(roles_to_colors: Dict[str, str]) -> Tuple[list[str], dict]:
