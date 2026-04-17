@@ -96,12 +96,16 @@ FULL_SENTENCE_INSTRUCTIONS_BY_MODE: Dict[str, list[str]] = {
     "one_sentence": ["Answer with one complete sentence."],
     # Return only a direction phrase (no subject/object, no full sentence).
     "short_phrase": [
-        "Answer with only a short direction phrase (e.g., upper left, left, above). Do not write a full sentence."
+        "Answer shortly."
     ],
 }
 
 SINGLE_AXIS_INSTRUCTIONS_BY_MODE: Dict[str, list[str]] = {
+    # No explicit instruction appended; answer mode will be chosen automatically.
+    "none": [""],
     "mcq_letter": ["Respond with one letter."],
+    # Optional: explicit mode asking for both letter and content.
+    "mcq_letter_plus_text": ["Answer with the option letter and its text."],
 }
 
 JUDGMENT_INSTRUCTIONS_BY_MODE: Dict[str, list[str]] = {
@@ -117,7 +121,15 @@ FULL_SENTENCE_ANSWERS_BY_MODE: Dict[str, list[str]] = {
     "short_phrase": ["{direction}"],
 }
 
-# SINGLE_AXIS answers are constrained by instruction-following; keep as labels.
+# SINGLE_AXIS answers by mode:
+# - "mcq_letter": output only "A" or "B"
+# - "mcq_letter_plus_text": output like "A. left" / "B. right"
+SINGLE_AXIS_ANSWERS_BY_MODE: Dict[str, list[str]] = {
+    "mcq_letter": ["{letter}"],
+    "mcq_letter_plus_text": ["{letter}. {text}"],
+}
+
+# Judgment answers are constrained by instruction-following; keep as labels.
 JUDGMENT_ANSWER_CORRECT_POOL = ["Correct."]
 JUDGMENT_ANSWER_PARTIAL_POOL = ["Partially correct. {full_sentence}"]
 JUDGMENT_ANSWER_INCORRECT_POOL = ["Incorrect. {full_sentence}"]
@@ -185,6 +197,29 @@ def render_full_sentence_qa_pair(rng: random.Random, *, anchor: str, target: str
     return question, answer
 
 
+def render_full_sentence_qa_pair_with_modes(
+    rng: random.Random, *, anchor: str, target: str, direction: str
+) -> Tuple[str, str, str, str]:
+    """
+    Like `render_full_sentence_qa_pair`, but also returns (instruction_mode, answer_mode).
+    """
+    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
+
+    inst_mode = rng.choice(list(FULL_SENTENCE_INSTRUCTIONS_BY_MODE.keys()))
+    inst_pool = FULL_SENTENCE_INSTRUCTIONS_BY_MODE.get(inst_mode) or [""]
+    ins = rng.choice(inst_pool)
+
+    if inst_mode == "none":
+        ans_mode = rng.choice([k for k in FULL_SENTENCE_ANSWERS_BY_MODE.keys()])
+    else:
+        ans_mode = inst_mode
+
+    question = _join_parts([task, q, ins])
+    answer = render_full_sentence_answer_by_mode(mode=ans_mode, anchor=anchor, target=target, direction=direction)
+    return question, answer, inst_mode, ans_mode
+
+
 def render_single_axis_question(
     rng: random.Random,
     *,
@@ -209,9 +244,59 @@ def render_single_axis_question(
     return _join_parts([task, q, ins])
 
 
+def render_single_axis_answer_by_mode(*, mode: str, truth: str, option_a: str, option_b: str) -> str:
+    letter = "A" if truth == option_a else "B"
+    text = option_a if letter == "A" else option_b
+    pool = SINGLE_AXIS_ANSWERS_BY_MODE.get(mode) or SINGLE_AXIS_ANSWERS_BY_MODE["mcq_letter"]
+    tpl = pool[0] if pool else "{letter}"
+    return _fmt(tpl, letter=letter, text=text)
+
+
+def render_single_axis_qa_pair_with_modes(
+    rng: random.Random,
+    *,
+    anchor: str,
+    target: str,
+    axis_name: str,
+    option_a: str,
+    option_b: str,
+    truth: str,
+) -> Tuple[str, str, str, str]:
+    """
+    Render (question, answer, instruction_mode, answer_mode) for SINGLE_AXIS style.
+
+    Rules:
+    - Choose instruction mode key first.
+    - If mode == "none": no instruction appended; choose an answer mode key randomly.
+    - Else: answer mode key is the same as the instruction mode key.
+    """
+    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    q = _fmt(
+        rng.choice(SINGLE_AXIS_QUESTION_POOL),
+        anchor=anchor,
+        target=target,
+        axis_name=axis_name,
+        option_a=option_a,
+        option_b=option_b,
+    )
+
+    inst_mode = rng.choice(list(SINGLE_AXIS_INSTRUCTIONS_BY_MODE.keys()))
+    inst_pool = SINGLE_AXIS_INSTRUCTIONS_BY_MODE.get(inst_mode) or [""]
+    ins = rng.choice(inst_pool)
+
+    if inst_mode == "none":
+        ans_mode = rng.choice(list(SINGLE_AXIS_ANSWERS_BY_MODE.keys()))
+    else:
+        ans_mode = inst_mode
+
+    question = _join_parts([task, q, ins])
+    answer = render_single_axis_answer_by_mode(mode=ans_mode, truth=truth, option_a=option_a, option_b=option_b)
+    return question, answer, inst_mode, ans_mode
+
+
 def render_single_axis_answer(*, truth: str, option_a: str, option_b: str) -> str:
-    # Output is the multiple-choice label (instruction-following constraint).
-    return "A" if truth == option_a else "B"
+    # Backward-compat: default to letter-only.
+    return render_single_axis_answer_by_mode(mode="mcq_letter", truth=truth, option_a=option_a, option_b=option_b)
 
 
 def render_judgment_statement(*, anchor: str, target: str, statement_direction: str) -> str:

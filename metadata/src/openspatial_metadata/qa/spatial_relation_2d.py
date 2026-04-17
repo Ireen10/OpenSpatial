@@ -125,13 +125,21 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
 
             anchor_text, target_text, marker_meta = _materialize_refs(rng, a, t, roles_to_mark)
             if style == FULL_SENTENCE:
-                q, ans = _build_full_sentence(rng, anchor_text, target_text, rel)
+                direction = _direction_phrase(rel)
+                q, ans, inst_mode, ans_mode = tpl.render_full_sentence_qa_pair_with_modes(
+                    rng, anchor=anchor_text, target=target_text, direction=direction
+                )
+                marker_meta["instruction_mode"] = inst_mode
+                marker_meta["answer_mode"] = ans_mode
             elif style == SINGLE_AXIS:
                 q, ans, extra = _build_single_axis(rng, cfg, anchor_text, target_text, rel)
                 marker_meta.update(extra)
             else:
                 q, ans, extra = _build_judgment(rng, cfg, anchor_text, target_text, rel)
                 marker_meta.update(extra)
+                # Currently judgment has a single instruction mode in templates.
+                marker_meta.setdefault("instruction_mode", "with_explanation")
+                marker_meta.setdefault("answer_mode", "with_explanation")
 
             meta = {
                 "sample_id": md.sample.sample_id,
@@ -153,7 +161,7 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
             }
             if marker_meta.get("shared_description"):
                 meta["shared_description"] = marker_meta["shared_description"]
-            for k in ("axis", "judgment_mode", "statement_direction"):
+            for k in ("axis", "judgment_mode", "statement_direction", "instruction_mode", "answer_mode"):
                 if k in marker_meta:
                     meta[k] = marker_meta[k]
 
@@ -417,16 +425,16 @@ def _build_single_axis(
     if rng.random() < 0.5:
         option_a, option_b = option_b, option_a
     truth = truth_atom
-    question = tpl.render_single_axis_question(
+    question, answer, inst_mode, ans_mode = tpl.render_single_axis_qa_pair_with_modes(
         rng,
         anchor=anchor_text,
         target=target_text,
         axis_name=axis,
         option_a=option_a,
         option_b=option_b,
+        truth=truth,
     )
-    answer = tpl.render_single_axis_answer(truth=truth, option_a=option_a, option_b=option_b)
-    return question, answer, {"axis": axis}
+    return question, answer, {"axis": axis, "instruction_mode": inst_mode, "answer_mode": ans_mode}
 
 
 def _sample_judgment_mode(rng: random.Random, cfg: SpatialRelation2DConfig, rel: dict) -> str:
