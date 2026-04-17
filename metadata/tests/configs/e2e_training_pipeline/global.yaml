@@ -1,4 +1,4 @@
-output_root: "metadata_out"
+metadata_output_root: "metadata_out"
 batch_size: 1
 num_workers: 0
 resume: true

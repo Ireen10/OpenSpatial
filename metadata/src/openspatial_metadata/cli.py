@@ -279,14 +279,17 @@ def _split_subdir(out_dir: Path, sub: str) -> Path:
 
 
 def _training_output_root(args_output_root: Optional[str], ds: Any, g: Any) -> Path:
-    # training_output_root is dataset-specific; fall back to metadata output root tree if absent
+    # training_output_root: dataset overrides global; fallback to metadata output root tree if absent
     tor = getattr(ds, "training_output_root", None)
     if isinstance(args_output_root, str) and args_output_root:
         # CLI --output-root overrides metadata output root only; training root uses dataset.training_output_root when set
         pass
     if isinstance(tor, str) and tor:
         return Path(tor)
-    return Path(args_output_root or getattr(ds, "output_root", None) or g.output_root)
+    gtor = getattr(g, "training_output_root", None)
+    if isinstance(gtor, str) and gtor:
+        return Path(gtor)
+    return Path(args_output_root or getattr(ds, "metadata_output_root", None) or g.metadata_output_root)
 
 
 def _resolve_image_root(ds: Any, dataset_path: str) -> str:
@@ -749,7 +752,7 @@ def main(argv=None) -> None:
     for cfg_path in cfg_paths:
         ds = load_dataset_config(cfg_path)
         resolve_adapter(ds)
-        ds_output_root = args.output_root or getattr(ds, "output_root", None) or g.output_root
+        ds_output_root = args.output_root or getattr(ds, "metadata_output_root", None) or g.metadata_output_root
         output_root = Path(ds_output_root)
         output_root.mkdir(parents=True, exist_ok=True)
         (rel2d, rel3d) = _get_enrich_flags(ds)

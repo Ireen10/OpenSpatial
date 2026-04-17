@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--output-root",
         default=None,
-        help="Root directory containing {dataset}/{split}/*.metadata.jsonl (default: global output_root).",
+        help="Root directory containing {dataset}/{split}/*.metadata.jsonl (default: global metadata_output_root).",
     )
     p.add_argument(
         "--config-root",
@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--global-config",
         default=None,
-        help="Optional global.yaml for default output_root and scale.",
+        help="Optional global.yaml for default metadata_output_root and scale.",
     )
     p.add_argument(
         "--qa-config",
@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
 
     g = load_global_config(args.global_config)
-    out = args.output_root or g.output_root
+    out = args.output_root or g.metadata_output_root
     output_root = Path(out).resolve()
     if not output_root.is_dir():
         print(f"[openspatial-metadata-viz] warning: output_root is not a directory: {output_root}", file=sys.stderr)
@@ -46,6 +46,8 @@ def main(argv: list[str] | None = None) -> None:
     idx = build_dataset_index(config_root)
 
     qa_cfg = args.qa_config or getattr(g, "qa_config", None)
+    tor = getattr(g, "training_output_root", None)
+    training_root = Path(tor).resolve() if isinstance(tor, str) and tor else None
     httpd = create_server(
         args.host,
         args.port,
@@ -53,6 +55,7 @@ def main(argv: list[str] | None = None) -> None:
         dataset_index=idx,
         default_scale=int(g.scale),
         qa_config_path=str(qa_cfg) if qa_cfg else None,
+        training_output_root=training_root,
     )
     print(
         f"[openspatial-metadata-viz] serving http://{args.host}:{args.port}/  "

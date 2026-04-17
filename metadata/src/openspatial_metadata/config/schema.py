@@ -45,7 +45,8 @@ class DatasetConfig(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
     adapter: Optional[AdapterSpec] = None
     splits: List[SplitSpec]
-    output_root: Optional[str] = None
+    # Renamed from `output_root` (kept as alias for backward compatibility).
+    metadata_output_root: Optional[str] = Field(default=None, alias="output_root")
     training_output_root: Optional[str] = None
     viz: Optional[VizSpec] = None
 
@@ -54,7 +55,10 @@ class GlobalConfig(BaseModel):
     class Config:
         extra = "allow"
 
-    output_root: str = "metadata_out"
+    # Renamed from `output_root` (kept as alias for backward compatibility).
+    metadata_output_root: str = Field(default="metadata_out", alias="output_root")
+    # New: unified default training output root (datasets may override).
+    training_output_root: Optional[str] = None
     scale: int = 1000
     batch_size: int = 1000
     num_workers: int = 0

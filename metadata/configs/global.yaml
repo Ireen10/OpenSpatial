@@ -1,4 +1,4 @@
-output_root: metadata_out
+metadata_output_root: metadata_out
 scale: 1000
 batch_size: 3
 num_workers: 2
@@ -8,4 +8,7 @@ strict: true
 # Global QA task registry (shared across datasets).
 # Can be overridden by CLI --qa-config.
 qa_config: metadata/configs/qa_tasks.yaml
+
+# Optional: unified default training output root (datasets may override).
+# training_output_root: training_out
 

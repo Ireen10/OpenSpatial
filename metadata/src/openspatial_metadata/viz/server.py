@@ -60,6 +60,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
         dataset_index: Dict[str, DatasetIndexEntry] = self.server.dataset_index  # type: ignore[attr-defined]
         default_scale: int = self.server.default_scale  # type: ignore[attr-defined]
         qa_config_path: str | None = getattr(self.server, "qa_config_path", None)  # type: ignore[attr-defined]
+        global_training_root: Path | None = getattr(self.server, "training_output_root", None)  # type: ignore[attr-defined]
 
         try:
             if path in ("/", "/index.html"):
@@ -72,6 +73,8 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 parts = []
                 for name in sorted(dataset_index.keys()):
                     tr = resolved_training_root(dataset_index, name)
+                    if tr is None and global_training_root is not None:
+                        tr = global_training_root
                     if tr is None:
                         continue
                     parts.extend(enumerate_training_parts(tr))
@@ -207,7 +210,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                     _send_json(self, {"error": "bad part/offset/limit"}, 400)
                     return
                 limit = max(1, min(limit, 200))
-                tr = resolved_training_root(dataset_index, dataset_name)
+                tr = resolved_training_root(dataset_index, dataset_name) or global_training_root
                 if tr is None:
                     _send_json(self, {"error": "training_output_root not set for dataset", "dataset": dataset_name}, 404)
                     return
@@ -246,7 +249,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     _send_json(self, {"error": "bad part"}, 400)
                     return
-                tr = resolved_training_root(dataset_index, dataset_name)
+                tr = resolved_training_root(dataset_index, dataset_name) or global_training_root
                 if tr is None:
                     _send_json(self, {"error": "training_output_root not set for dataset", "dataset": dataset_name}, 404)
                     return
@@ -286,12 +289,14 @@ def create_server(
     dataset_index: Dict[str, DatasetIndexEntry],
     default_scale: int,
     qa_config_path: str | None = None,
+    training_output_root: Path | None = None,
 ) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), VizRequestHandler)
     httpd.output_root = output_root.resolve()  # type: ignore[attr-defined]
     httpd.dataset_index = dataset_index  # type: ignore[attr-defined]
     httpd.default_scale = default_scale  # type: ignore[attr-defined]
     httpd.qa_config_path = qa_config_path  # type: ignore[attr-defined]
+    httpd.training_output_root = training_output_root.resolve() if training_output_root else None  # type: ignore[attr-defined]
     return httpd
 
 
