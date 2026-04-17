@@ -78,6 +78,25 @@ class QueryV0(BaseModel):
     filters: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AnnotationQaItemV0(BaseModel):
+    """One generated QA pair (and trace fields) attached to a metadata record.
+
+    When a sample has no generated annotation QA, ``MetadataV0.qa_items`` is an empty list.
+    """
+
+    class Config:
+        extra = "allow"
+
+    qa_id: str
+    task: Optional[str] = None
+    question: str = ""
+    answer: str = ""
+    question_type: Optional[str] = None
+    question_tags: List[str] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    relation_id: Optional[str] = None
+
+
 class MetadataV0(BaseModel):
     """
     v0 minimal skeleton aligned with wiki top-level modules.
@@ -93,6 +112,7 @@ class MetadataV0(BaseModel):
     objects: List[ObjectV0] = Field(default_factory=list)
     queries: List[QueryV0] = Field(default_factory=list)
     relations: List[RelationV0] = Field(default_factory=list)
+    qa_items: List[AnnotationQaItemV0] = Field(default_factory=list)
     aux: Dict[str, Any] = Field(default_factory=dict)
 
     # ── id helpers (v0: sample-scoped uniqueness) ──────────────────────────

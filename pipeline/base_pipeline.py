@@ -132,6 +132,24 @@ class BasePipeline:
             print(f">>> Overriding dataset with {resolved_path}...")
             self.dataset.override_data(resolved_path)
 
+    @staticmethod
+    def _uses_annotation_qa_metadata_sink(stage_name, task_cfg):
+        """Use dataset.save_annotation_qa_metadata instead of default parquet annotation save.
+
+        Trigger by either:
+
+        - YAML stage name ``annotation_qa_metadata_stage`` (task module still under
+          ``task.annotation``; see ``resolve_task_subpackage_name``), or
+        - ``annotation_stage`` with ``annotation_persist: qa_metadata`` on the task.
+        """
+        if stage_name == "annotation_qa_metadata_stage":
+            return True
+        if stage_name == "annotation_stage" and getattr(
+            task_cfg, "annotation_persist", None
+        ) == "qa_metadata":
+            return True
+        return False
+
     def _resolve_output_path(self, stage_name, task_name, task_cfg, default_rel_dir=None):
         """Resolve output directory for task results."""
         output_dir = task_cfg.output_dir
@@ -146,7 +164,20 @@ class BasePipeline:
         output_path = self._resolve_output_path(stage_name, task_name, task_cfg, default_rel_dir)
         os.makedirs(output_path, exist_ok=True)
 
-        if stage_name == "annotation_stage":
+        if self._uses_annotation_qa_metadata_sink(stage_name, task_cfg):
+            batch_size = getattr(task_cfg, "save_batch_size", 1000)
+            # No default ``messages`` here: spatial / custom QA tasks use ``question``/``answer``/``meta``
+            # (OpenSpatial ``messages`` is the legacy human/gpt list; not required for grounding-aligned export).
+            keep_cols = getattr(task_cfg, "keep_data_columns",
+                               ["QA_images", "question_tags", "question_types",
+                                "question", "answer", "meta"])
+            self.dataset.save_annotation_qa_metadata(
+                os.path.join(output_path, "data.parquet"),
+                processed_data,
+                batch_size=batch_size,
+                keep_data_columns=keep_cols,
+            )
+        elif stage_name == "annotation_stage":
             batch_size = getattr(task_cfg, "save_batch_size", 1000)
             keep_cols = getattr(task_cfg, "keep_data_columns",
                                ["messages", "QA_images", "question_tags", "question_types"])

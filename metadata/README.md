@@ -12,6 +12,7 @@
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
 - I/O：`io/json.py`；占位适配器：`adapters/passthrough.py`；归一化：`utils/normalize.py`。
 - **2D 关系增强（`image_plane`）**：`enrich.enrich_relations_2d` 在 **`MetadataV0` 副本**上根据框/点代表点计算 `relations`（单原子或 `components` 复合），与 adapter 解耦；详见 `metadata/plans/2026-04-15_1658_metadata_next/design.md`。
+- **训练导出（首版）**：`openspatial_metadata.export.export_metadata_to_training_bundle` 从带 `qa_items` 的 `MetadataV0` 写出 `images/part_*.tar`、`part_*_tarinfo.json` 与 `jsonl/part_*.jsonl`（见 `metadata/docs/training_data_format_zh.md`）。
 
 **仍为占位 / 未接入 CLI（与 `plans/`、wiki 文档对齐的后续工作）：**
 

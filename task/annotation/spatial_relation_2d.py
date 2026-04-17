@@ -148,7 +148,7 @@ class AnnotationGenerator(BaseTask):
         plan = self._plan_counts(requested, len(candidate_relations))
         allocations = self._allocate_relations(candidate_relations, plan)
 
-        questions, answers, metas, qa_images = [], [], [], []
+        questions, answers, metas = [], [], []
         question_types, question_tags = [], []
 
         for style in STYLE_PRIORITY:
@@ -156,11 +156,10 @@ class AnnotationGenerator(BaseTask):
                 qa = self._build_qa(style, rel, object_map, image, example)
                 if qa is None:
                     continue
-                question, answer, meta, qa_image = qa
+                question, answer, meta, _qa_image = qa
                 questions.append(question)
                 answers.append(answer)
                 metas.append(meta)
-                qa_images.append(qa_image)
                 question_types.append(QUESTION_TYPE_BY_STYLE[style])
                 question_tags.append(["2D Spatial Relation"])
 
@@ -171,7 +170,6 @@ class AnnotationGenerator(BaseTask):
         example["question"] = questions
         example["answer"] = answers
         example["meta"] = metas
-        example["QA_images"] = qa_images
         example["question_types"] = question_types
         example["question_tags"] = question_tags
         return example, True

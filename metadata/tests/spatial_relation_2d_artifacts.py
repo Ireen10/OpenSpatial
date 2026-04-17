@@ -61,10 +61,6 @@ def _qa_records_from_task_result(result: Dict[str, Any]) -> List[Dict[str, Any]]
     n = len(result["question"])
     records: List[Dict[str, Any]] = []
     for i in range(n):
-        qa_img = result["QA_images"][i]
-        img_len = None
-        if isinstance(qa_img, dict) and isinstance(qa_img.get("bytes"), (bytes, bytearray)):
-            img_len = len(qa_img["bytes"])
         records.append(
             {
                 "index": i,
@@ -73,7 +69,6 @@ def _qa_records_from_task_result(result: Dict[str, Any]) -> List[Dict[str, Any]]
                 "meta": result["meta"][i],
                 "question_type": str(result["question_types"][i]),
                 "question_tags": result["question_tags"][i],
-                "qa_image_bytes_len": img_len,
             }
         )
     return records
@@ -94,8 +89,6 @@ def write_qa_text_artifacts(result: Dict[str, Any], stem: str) -> Tuple[Path, Pa
         md_parts.append(f"## QA {r['index']}\n")
         md_parts.append(f"- **qa_style**: `{r['meta'].get('qa_style')}`\n")
         md_parts.append(f"- **relation_id**: `{r['meta'].get('relation_id')}`\n")
-        if r.get("qa_image_bytes_len") is not None:
-            md_parts.append(f"- **qa_image_bytes_len**: {r['qa_image_bytes_len']}\n")
         md_parts.append("\n### Question\n\n")
         md_parts.append(r["question"] + "\n\n")
         md_parts.append("### Answer\n\n")

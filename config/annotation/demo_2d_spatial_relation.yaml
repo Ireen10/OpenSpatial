@@ -8,6 +8,10 @@ pipeline:
   class_name: BasePipeline
 
   stages:
+    # Default: classic annotation persistence (flatten → data.parquet).
+    # Alternative: use stage name ``annotation_qa_metadata_stage`` (same task module
+    # ``task.annotation.*``) to write ``data.qa_bundle.jsonl`` + ``data_flat.parquet``;
+    # or keep ``annotation_stage`` and set ``annotation_persist: qa_metadata``.
     annotation_stage:
       -
         file_name: spatial_relation_2d
@@ -30,7 +34,6 @@ pipeline:
           - question
           - answer
           - meta
-          - QA_images
           - question_tags
           - question_types
         use_multi_processing: false

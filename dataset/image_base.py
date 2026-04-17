@@ -1,7 +1,9 @@
 import io
+import json
 import math
 import os
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -128,6 +130,104 @@ class ImageBaseDataset:
                 return
 
         data.to_parquet(data_path, engine="pyarrow")
+
+    def save_annotation_qa_metadata(
+        self,
+        data_path,
+        data,
+        *,
+        batch_size=1000,
+        keep_data_columns=None,
+    ):
+        """Persist annotation rows for QA+metadata workflows (bypasses classic ``data.parquet`` only).
+
+        Writes:
+
+        - ``<stem>.qa_bundle.jsonl`` — one JSON object per **input row** (sample-level QA lists,
+          no image bytes) for downstream merge into ``*.metadata.jsonl``.
+        - ``<stem>_flat.parquet`` — flattened one row per QA (same idea as ``annotation_flag``).
+
+        The classic ``annotation_stage`` path is unchanged; this is used when the pipeline selects
+        the ``annotation_qa_metadata_stage`` branch (or ``annotation_persist: qa_metadata``).
+        """
+        if data is None:
+            raise ValueError("Data to save is None")
+        if not isinstance(data, pd.DataFrame):
+            raise ValueError("Only pandas DataFrame is supported")
+
+        keep_data_columns = keep_data_columns or [
+            "QA_images",
+            "question_tags",
+            "question_types",
+            "question",
+            "answer",
+            "meta",
+        ]
+        present_keys = [c for c in keep_data_columns if c in data.columns]
+        if not present_keys:
+            raise ValueError(
+                "save_annotation_qa_metadata: none of keep_data_columns are present on the DataFrame"
+            )
+        path = Path(data_path)
+        bundle_path = path.with_name(path.stem + ".qa_bundle.jsonl")
+        flat_path = path.with_name(path.stem + "_flat.parquet")
+
+        self._write_qa_bundle_jsonl(bundle_path, data, present_keys)
+
+        flat = flatten_annotations(data, keep_keys=present_keys)
+        if len(flat) > batch_size:
+            self._save_batches(str(flat_path), flat, batch_size)
+        else:
+            flat.to_parquet(flat_path, engine="pyarrow")
+
+    @staticmethod
+    def _write_qa_bundle_jsonl(bundle_path: Path, data: pd.DataFrame, keep_keys: list) -> None:
+        """Write sample-level records; omits ``QA_images`` (bytes) and ``messages`` (unused for export)."""
+        omit = {"QA_images", "messages"}
+        keys = [k for k in keep_keys if k not in omit]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        with bundle_path.open("w", encoding="utf-8") as f:
+            for _, row in data.iterrows():
+                record = ImageBaseDataset._row_to_qa_bundle(row, keys)
+                f.write(json.dumps(record, ensure_ascii=False, default=str))
+                f.write("\n")
+
+    @staticmethod
+    def _row_to_qa_bundle(row, keys: list) -> dict:
+        sample = row.get("sample")
+        sample_id = None
+        if isinstance(sample, dict):
+            sample_id = sample.get("sample_id")
+        if sample_id is None:
+            sample_id = row.get("sample_id")
+
+        lengths = []
+        for key in keys:
+            if key not in row or row[key] is None:
+                lengths.append(0)
+                continue
+            val = row[key]
+            if isinstance(val, (list, tuple)):
+                lengths.append(len(val))
+            else:
+                lengths.append(1)
+
+        n = max(lengths) if lengths else 0
+        qa_items = []
+        for i in range(n):
+            item = {}
+            for key in keys:
+                if key not in row or row[key] is None:
+                    item[key] = None
+                    continue
+                val = row[key]
+                if isinstance(val, (list, tuple)):
+                    item[key] = val[i] if i < len(val) else None
+                else:
+                    item[key] = val if i == 0 else None
+            qa_items.append(item)
+
+        return {"sample_id": sample_id, "qa": qa_items}
 
     @staticmethod
     def _save_batches(data_path, data, batch_size):

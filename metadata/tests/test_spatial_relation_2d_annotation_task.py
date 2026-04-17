@@ -37,7 +37,7 @@ class TestSpatialRelation2DAnnotationTask(unittest.TestCase):
         self.assertEqual(len(result["question"]), 6)
         self.assertEqual(len(result["answer"]), 6)
         self.assertEqual(len(result["meta"]), 6)
-        self.assertEqual(len(result["QA_images"]), 6)
+        self.assertNotIn("QA_images", result)
         self.assertEqual(len(result["question_types"]), 6)
         self.assertEqual(len(result["question_tags"]), 6)
 
@@ -45,7 +45,6 @@ class TestSpatialRelation2DAnnotationTask(unittest.TestCase):
         self.assertEqual(len(relation_ids), len(set(relation_ids)))
         self.assertTrue(all(item["qa_type"] == "2d_spatial_relation" for item in result["meta"]))
         self.assertTrue(all(item["qa_style"] in {"single_axis", "full_sentence", "judgment"} for item in result["meta"]))
-        self.assertTrue(all(isinstance(img, dict) and "bytes" in img for img in result["QA_images"]))
         self.assertTrue(Path(result["image"]).is_file())
 
     def test_task_reduces_counts_when_relations_are_insufficient(self):
