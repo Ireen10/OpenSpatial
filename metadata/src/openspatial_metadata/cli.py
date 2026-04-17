@@ -382,8 +382,10 @@ def _process_jsonl_file_training_pipeline(
                 payload["qa_items"] = [it.dict() for it in items]
                 md_qa = MetadataV0.parse_obj(payload)
 
-            # Always persist the "qa" view for inspection/refresh.
-            w_qa.write_records([md_qa.dict()])
+            # Persist the "qa" view only when there is at least 1 QA item.
+            # This keeps metadata_qa smaller (skip samples where QA generation yields 0 items).
+            if md_qa.qa_items:
+                w_qa.write_records([md_qa.dict()])
 
             # Step 3: export training bundle
             if enable_export:
