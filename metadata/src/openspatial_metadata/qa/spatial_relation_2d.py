@@ -9,7 +9,6 @@ This module is metadata-native:
 from __future__ import annotations
 
 import random
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -329,13 +328,13 @@ def _materialize_refs(rng: random.Random, anchor: dict, target: dict, roles_to_m
     if same_phrase and role_to_color.get("anchor") and role_to_color.get("target"):
         ca = role_to_color["anchor"]
         ct = role_to_color["target"]
-        anchor_name = tpl.render_marked_ref_same_phrase(color=ca)
-        target_name = tpl.render_marked_ref_same_phrase(color=ct)
+        anchor_name = tpl.render_marked_ref_same_phrase(rng, color=ca)
+        target_name = tpl.render_marked_ref_same_phrase(rng, color=ct)
     else:
         if "anchor" in role_to_color:
-            anchor_name = tpl.render_marked_ref_with_hint(name=anchor_name, color=role_to_color["anchor"])
+            anchor_name = tpl.render_marked_ref_with_hint(rng, name=anchor_name, color=role_to_color["anchor"])
         if "target" in role_to_color:
-            target_name = tpl.render_marked_ref_with_hint(name=target_name, color=role_to_color["target"])
+            target_name = tpl.render_marked_ref_with_hint(rng, name=target_name, color=role_to_color["target"])
 
     return anchor_name, target_name, {
         "marked_roles": list(role_to_color.keys()),
@@ -354,11 +353,6 @@ def _direction_phrase(rel: dict) -> str:
     if predicate in ATOMIC_TO_AXIS:
         return DIR_PHRASE[(predicate,)]
     return "near"
-
-
-def _build_full_sentence(rng: random.Random, anchor_text: str, target_text: str, rel: dict) -> Tuple[str, str]:
-    direction = _direction_phrase(rel)
-    return tpl.render_full_sentence_qa_pair(rng, anchor=anchor_text, target=target_text, direction=direction)
 
 
 def _delta_uv(rel: dict) -> Tuple[Optional[float], Optional[float]]:

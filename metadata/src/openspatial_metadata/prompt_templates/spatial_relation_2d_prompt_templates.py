@@ -157,13 +157,11 @@ def render_full_sentence_question(rng: random.Random, *, anchor: str, target: st
     return _join_parts([task, q, ins])
 
 
-def render_full_sentence_answer(*, anchor: str, target: str, direction: str) -> str:
+def render_full_sentence_answer(rng: random.Random, *, anchor: str, target: str, direction: str) -> str:
     # Keep answer variations fully within templates.
-    pool = FULL_SENTENCE_ANSWERS_BY_MODE.get("one_sentence") or [
-        "In the image plane, {target} is {direction} {anchor}."
-    ]
-    tpl = random.choice(pool) if pool else "In the image plane, {target} is {direction} {anchor}."
-    return _fmt(tpl, anchor=anchor, target=target, direction=direction)
+    return render_full_sentence_answer_by_mode(
+        rng, mode="one_sentence", anchor=anchor, target=target, direction=direction
+    )
 
 
 def render_full_sentence_answer_by_mode(
@@ -301,12 +299,6 @@ def render_single_axis_qa_pair_with_modes(
     return question, answer, inst_mode, ans_mode
 
 
-def render_single_axis_answer(*, truth: str, option_a: str, option_b: str) -> str:
-    # Backward-compat: default to letter-only.
-    rng = random.Random(0)
-    return render_single_axis_answer_by_mode(rng, mode="mcq_letter", truth=truth, option_a=option_a, option_b=option_b)
-
-
 def render_judgment_statement(*, anchor: str, target: str, statement_direction: str) -> str:
     return _fmt("{target} is {statement_direction} {anchor} in the image plane.", anchor=anchor, target=target, statement_direction=statement_direction)
 
@@ -328,7 +320,7 @@ def render_judgment_answer(
     target: str,
     true_direction: str,
 ) -> str:
-    full_sentence = render_full_sentence_answer(anchor=anchor, target=target, direction=true_direction)
+    full_sentence = render_full_sentence_answer(rng, anchor=anchor, target=target, direction=true_direction)
     if mode == "correct":
         tpl = rng.choice(JUDGMENT_ANSWER_CORRECT_POOL) if JUDGMENT_ANSWER_CORRECT_POOL else "Correct."
         return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
@@ -347,13 +339,21 @@ def render_judgment_answer(
     return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
 
 
-def render_marked_ref_same_phrase(*, color: str) -> str:
-    tpl = random.choice(MARKED_REF_SAME_PHRASE_POOL) if MARKED_REF_SAME_PHRASE_POOL else "the object in the {color} box"
+def render_marked_ref_same_phrase(rng: random.Random, *, color: str) -> str:
+    tpl = (
+        rng.choice(MARKED_REF_SAME_PHRASE_POOL)
+        if MARKED_REF_SAME_PHRASE_POOL
+        else "the object in the {color} box"
+    )
     return tpl.format(color=color)
 
 
-def render_marked_ref_with_hint(*, name: str, color: str) -> str:
-    tpl = random.choice(MARKED_REF_WITH_HINT_POOL) if MARKED_REF_WITH_HINT_POOL else "{name} (the object in the {color} box in the image)"
+def render_marked_ref_with_hint(rng: random.Random, *, name: str, color: str) -> str:
+    tpl = (
+        rng.choice(MARKED_REF_WITH_HINT_POOL)
+        if MARKED_REF_WITH_HINT_POOL
+        else "{name} (the object in the {color} box in the image)"
+    )
     return tpl.format(name=name, color=color)
 
 
