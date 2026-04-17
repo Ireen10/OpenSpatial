@@ -350,10 +350,7 @@ def _direction_phrase(rel: dict) -> str:
 
 def _build_full_sentence(rng: random.Random, anchor_text: str, target_text: str, rel: dict) -> Tuple[str, str]:
     direction = _direction_phrase(rel)
-    return (
-        tpl.render_full_sentence_question(rng, anchor=anchor_text, target=target_text),
-        tpl.render_full_sentence_answer(anchor=anchor_text, target=target_text, direction=direction),
-    )
+    return tpl.render_full_sentence_qa_pair(rng, anchor=anchor_text, target=target_text, direction=direction)
 
 
 def _delta_uv(rel: dict) -> Tuple[Optional[float], Optional[float]]:

@@ -85,9 +85,10 @@ JUDGMENT_QUESTION_POOL = [
 
 # 3) Instruction-following pools (per style)
 FULL_SENTENCE_INSTRUCTION_POOL = [
-    # Optional: leave empty to allow free-form answers.
+    # Optional (element-level): use "" to mean "no explicit instruction".
+    "",
     "Answer with one complete sentence.",
-    # "Short" mode: return ONLY a direction phrase (no full sentence).
+    # Short mode: return ONLY a direction phrase (no full sentence).
     # Examples: upper left / lower right / left / right / above / below.
     "Answer with only a short direction phrase (e.g., upper left, left, above). Do not write a full sentence.",
 ]
@@ -103,6 +104,11 @@ JUDGMENT_INSTRUCTION_POOL = [
 # Answer template pools (per style)
 FULL_SENTENCE_ANSWER_POOL = [
     "In the image plane, {target} is {direction} {anchor}.",
+]
+
+# Short-phrase answers: keep these as phrases (no subject/object).
+SHORT_PHRASE_ANSWER_POOL = [
+    "{direction}",
 ]
 
 # SINGLE_AXIS answers are constrained by instruction-following; keep as labels.
@@ -134,6 +140,38 @@ def render_full_sentence_answer(*, anchor: str, target: str, direction: str) -> 
     # Keep answer variations fully within templates.
     tpl = FULL_SENTENCE_ANSWER_POOL[0] if FULL_SENTENCE_ANSWER_POOL else "In the image plane, {target} is {direction} {anchor}."
     return _fmt(tpl, anchor=anchor, target=target, direction=direction)
+
+
+def render_short_phrase_answer(*, direction: str) -> str:
+    tpl = SHORT_PHRASE_ANSWER_POOL[0] if SHORT_PHRASE_ANSWER_POOL else "{direction}"
+    return _fmt(tpl, direction=direction)
+
+
+def render_full_sentence_qa_pair(rng: random.Random, *, anchor: str, target: str, direction: str) -> Tuple[str, str]:
+    """
+    Render (question, answer) for full-sentence style, ensuring the answer mode matches the selected instruction.
+
+    Requirement:
+    - if instruction is empty -> randomly choose an answer mode from the supported ones
+    - if instruction requests a short phrase -> answer is a direction phrase (no full sentence)
+    - otherwise -> answer is one complete sentence
+    """
+    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
+    ins = rng.choice(FULL_SENTENCE_INSTRUCTION_POOL) if FULL_SENTENCE_INSTRUCTION_POOL else ""
+
+    ins_norm = (ins or "").strip().lower()
+    if not ins_norm:
+        mode = rng.choice(["full_sentence", "short_phrase"])
+    elif "short direction phrase" in ins_norm:
+        mode = "short_phrase"
+    else:
+        mode = "full_sentence"
+
+    question = _join_parts([task, q, ins])
+    if mode == "short_phrase":
+        return question, render_short_phrase_answer(direction=direction)
+    return question, render_full_sentence_answer(anchor=anchor, target=target, direction=direction)
 
 
 def render_single_axis_question(
