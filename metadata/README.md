@@ -6,7 +6,7 @@
 
 **已实现（本阶段工程框架）：**
 
-- 数据集配置：`configs/` 下一数据集一 YAML；`openspatial-metadata` 支持 `--config-root`（目录或单个文件）。
+- 数据集配置：建议将**可复用模板**放在 `metadata/templates/configs_minimal/` 并提交；本地运行时将配置拷贝到 `metadata/configs/`（该目录不提交）。`openspatial-metadata` 支持 `--config-root`（目录或单个文件）。
 - JSONL：按输入文件 1:1 写出 `.out.jsonl`；checkpoint（`next_input_index`）；可选**文件级**并行（`global.num_workers` / `--num-workers`，`ThreadPoolExecutor`）。
 - 单 JSON 多文件：聚合成 `part-*.jsonl`；checkpoint（`done`）；可选并行（worker 只读 JSON，**主线程单写者**，flush 后写 checkpoint）。
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
@@ -63,13 +63,13 @@ python -m openspatial_metadata.cli --help
 **示例**（在 OpenSpatial 仓库根目录执行；配置里的相对路径相对于**当前工作目录**）：
 
 ```bash
-openspatial-metadata --config-root metadata/tests/configs/datasets/demo_dataset/dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo
+openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo
 ```
 
 并行示例（覆盖 global 中的 `num_workers`）：
 
 ```bash
-openspatial-metadata --config-root metadata/tests/configs/datasets/demo_dataset/dataset.yaml --global-config metadata/configs/global.yaml --output-root metadata_out_demo --num-workers 4
+openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --num-workers 4
 ```
 
 ### Metadata 可视化（本地 HTTP）
@@ -86,13 +86,13 @@ pip install -e "./metadata"
 
 ```bash
 # Linux / macOS
-PYTHONPATH=metadata/src python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets --global-config metadata/configs/global.yaml
+PYTHONPATH=metadata/src python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets --global-config metadata/templates/configs_minimal/global.yaml
 ```
 
 ```powershell
 # Windows PowerShell（仓库根目录）
 $env:PYTHONPATH = "metadata\src"
-python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets --global-config metadata/configs/global.yaml
+python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets --global-config metadata/templates/configs_minimal/global.yaml
 ```
 
 安装完成后，也可与 `openspatial-metadata` 一样直接调用 **`openspatial-metadata-viz`**（参数相同）。
@@ -104,7 +104,7 @@ python -m openspatial_metadata.viz --config-root metadata/tests/configs/datasets
 一行命令（bash / cmd / PowerShell 均可）。**PowerShell 不支持 bash 的 `\` 续行**；多行请用行尾反引号 `` ` ``，或直接用下面这一行：
 
 ```bash
-openspatial-metadata-viz --config-root metadata/tests/configs/datasets --global-config metadata/configs/global.yaml --output-root metadata/tests/.tmp_refcoco_out
+openspatial-metadata-viz --config-root metadata/tests/configs/datasets --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata/tests/.tmp_refcoco_out
 ```
 
 PowerShell 多行示例（行尾反引号）：
@@ -112,7 +112,7 @@ PowerShell 多行示例（行尾反引号）：
 ```powershell
 openspatial-metadata-viz `
   --config-root metadata/tests/configs/datasets `
-  --global-config metadata/configs/global.yaml `
+  --global-config metadata/templates/configs_minimal/global.yaml `
   --output-root metadata/tests/.tmp_refcoco_out
 ```
 

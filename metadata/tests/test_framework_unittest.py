@@ -111,7 +111,7 @@ class TestFramework(unittest.TestCase):
                 "--config-root",
                 "metadata/tests/configs/datasets/demo_dataset/dataset.yaml",
                 "--global-config",
-                "metadata/configs/global.yaml",
+                "metadata/templates/configs_minimal/global.yaml",
                 "--output-root",
                 str(out_root),
             ]

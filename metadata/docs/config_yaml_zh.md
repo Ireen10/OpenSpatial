@@ -37,7 +37,7 @@
 | `num_workers` | int | `0` | 与 CLI `--num-workers` 合并得到**基础并行度**，再与展开后的输入文件数、硬顶 `32` 取最小值得到有效并行度 `effective`（见下文「并行与 `num_workers`」）。`effective <= 1` 时不创建线程池，整段 split 顺序执行。 |
 | `resume` | bool | `false` | 为 `true` 时启用 checkpoint **续跑**（与 CLI `--resume` 合并为「任一为真即续跑」）。 |
 | `strict` | bool | `true` | **遇错即停**（本轮仅支持 `true`）：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。CLI **不提供** `strict=False`。 |
-| `qa_config` | string, 可选 | `null` | 全局 QA 任务注册表 YAML 路径（例如 `metadata/configs/qa_tasks.yaml`）。可被 CLI `--qa-config` 覆盖。仅在启用 dataset `pipelines.ensure_qa` / `pipelines.export_training` 路径时需要。 |
+| `qa_config` | string, 可选 | `null` | 全局 QA 任务注册表 YAML 路径（例如 `metadata/templates/configs_minimal/qa_tasks.yaml`）。可被 CLI `--qa-config` 覆盖。仅在启用 dataset `pipelines.ensure_qa` / `pipelines.export_training` 路径时需要。 |
 
 允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。
 
@@ -157,15 +157,16 @@
 
 ## 最小示例
 
-**Global**（`metadata/configs/global.yaml`）：
+**Global**（`metadata/templates/configs_minimal/global.yaml`）：
 
 ```yaml
-output_root: metadata_out
+metadata_output_root: metadata_out
 scale: 1000
 batch_size: 3
 num_workers: 0
 resume: false
 strict: true
+qa_config: metadata/templates/configs_minimal/qa_tasks.yaml
 ```
 
 **Dataset**（节选）：

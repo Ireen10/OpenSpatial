@@ -7,7 +7,7 @@ strict: true
 
 # Global QA task registry (shared across datasets).
 # Can be overridden by CLI --qa-config.
-qa_config: metadata/configs/qa_tasks.yaml
+qa_config: metadata/templates/configs_minimal/qa_tasks.yaml
 
 # Optional: unified default training output root (datasets may override).
 # training_output_root: training_out

@@ -1,0 +1,24 @@
+name: "demo_metadata_to_training"
+
+# Where to write metadata jsonl outputs:
+metadata_output_root: "metadata_out"
+
+# Where to write training bundle outputs (tar+tarinfo+jsonl):
+training_output_root: "training_out"
+
+viz:
+  # Root directory for original images (used by openspatial-metadata-viz /api/image).
+  image_root: "path/to/images_root"
+
+splits:
+  - name: "train_small"
+    input_type: "jsonl"
+    inputs:
+      - "path/to/input.jsonl"
+
+pipelines:
+  to_metadata: true
+  ensure_qa: true
+  export_training: true
+  qa_task_name: "spatial_relation_2d"
+

@@ -37,3 +37,6 @@ metadata/configs/datasets/**/README.md
 
 # metadata 子项目：本地数据集配置（不提交；测试用配置在 metadata/tests/configs/datasets/）
 metadata/configs/datasets/
+
+# metadata 子项目：本地运行配置（不提交；使用 templates 下的示例再拷贝）
+metadata/configs/

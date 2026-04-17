@@ -16,7 +16,7 @@ class QaTaskSpec:
 
 def load_qa_tasks_config(path: str) -> Dict[str, QaTaskSpec]:
     """
-    Load the global QA task registry YAML (``metadata/configs/qa_tasks.yaml``).
+    Load the global QA task registry YAML (e.g. ``metadata/templates/configs_minimal/qa_tasks.yaml``).
     Returns mapping: task_name -> QaTaskSpec.
     """
     p = Path(path)
