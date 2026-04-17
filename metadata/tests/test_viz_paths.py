@@ -17,12 +17,13 @@ def test_enumerate_skips_checkpoints_and_nested(tmp_path: Path) -> None:
     (root / "ds" / "sp" / "a.metadata.jsonl").write_text("{}\n", encoding="utf-8")
     (root / "ds" / "sp" / ".checkpoints").mkdir()
     (root / "ds" / "sp" / ".checkpoints" / "x.json").write_text("{}", encoding="utf-8")
-    # nested extra dir under split — should be ignored (len(parts)!=2)
+    # nested extra dir under split — should be included (metadata_noqa/metadata_qa).
     (root / "ds" / "sp" / "extra").mkdir()
     (root / "ds" / "sp" / "extra" / "b.metadata.jsonl").write_text("{}\n", encoding="utf-8")
     files = enumerate_metadata_jsonl(root)
-    assert len(files) == 1
-    assert files[0]["name"] == "a.metadata.jsonl"
+    assert len(files) == 2
+    names = sorted([f["name"] for f in files])
+    assert names == ["a.metadata.jsonl", "b.metadata.jsonl"]
 
 
 def test_read_line_and_find_sample(tmp_path: Path) -> None:

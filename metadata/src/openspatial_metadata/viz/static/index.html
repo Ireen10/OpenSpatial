@@ -87,10 +87,14 @@
     const $ = (id) => document.getElementById(id);
     let config = { default_scale: 1000 };
     let state = {
+      mode: "metadata", // metadata | training
+      // metadata selection
       path: null,
       line: 0,
       line_count: 0,
       record: null,
+      // training selection
+      training: { dataset: null, split: null, part: null, offset: 0, limit: 50, line_count: 0, records: [], idx: 0 },
       hover_object_id: null,
       hover_relation_idx: null,
       selected_object_id: null,
@@ -331,6 +335,7 @@
 
     async function fetchRecord() {
       if (!state.path) return;
+      state.mode = "metadata";
       const u = `/api/record?path=${encodeURIComponent(state.path)}&line=${state.line}`;
       const r = await fetch(u);
       const j = await r.json();
@@ -358,6 +363,63 @@
       $("view").onload = () => { drawOverlay(); };
     }
 
+    function escapeHtml(s) {
+      return String(s || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function trainingImageUrl(relpath) {
+      const tr = state.training;
+      return `/api/training_image?dataset=${encodeURIComponent(tr.dataset)}&split=${encodeURIComponent(tr.split)}&part=${encodeURIComponent(String(tr.part))}&relpath=${encodeURIComponent(relpath)}`;
+    }
+
+    async function fetchTrainingLines() {
+      const tr = state.training;
+      if (!tr.dataset || !tr.split || tr.part == null) return;
+      state.mode = "training";
+      const u = `/api/training_lines?dataset=${encodeURIComponent(tr.dataset)}&split=${encodeURIComponent(tr.split)}&part=${encodeURIComponent(String(tr.part))}&offset=${encodeURIComponent(String(tr.offset))}&limit=${encodeURIComponent(String(tr.limit))}`;
+      const r = await fetch(u);
+      const j = await r.json();
+      if (j.error) { $("hdr-meta").innerHTML = `<span class="err">${esc(j.error)}</span>`; return; }
+      tr.records = j.records || [];
+      tr.line_count = j.line_count || 0;
+      tr.idx = 0;
+      $("line-input").value = String(tr.offset);
+      $("line-status").textContent = `offset ${tr.offset} · ${tr.records.length} recs · total ${tr.line_count}`;
+      $("hdr-meta").textContent = `${tr.dataset} · ${tr.split} · part_${String(tr.part).padStart(6,"0")}`;
+      renderTraining();
+    }
+
+    function renderTraining() {
+      const tr = state.training;
+      const row = (tr.records || [])[tr.idx || 0];
+      if (!row) {
+        $("view").removeAttribute("src");
+        $("overlay").width = 0; $("overlay").height = 0;
+        $("raw-json").textContent = "";
+        $("panel-objects").innerHTML = "<div class='err'>No training record loaded</div>";
+        return;
+      }
+      const imgRel = (((row.data||[])[0]||{}).content||[])[0]?.image?.relative_path;
+      if (imgRel) $("view").src = trainingImageUrl(imgRel);
+      $("overlay").width = 0; $("overlay").height = 0;
+      $("raw-json").textContent = JSON.stringify(row, null, 2);
+      const turns = row.data || [];
+      const html = [`<table><thead><tr><th>role</th><th>content</th></tr></thead><tbody>`];
+      turns.forEach(t => {
+        const role = t.role;
+        const content = (t.content||[]).map(c => c.type === "text" ? (c.text && c.text.string) : (c.type==="image" ? `[image ${c.image?.relative_path||""}]` : JSON.stringify(c))).join("\n");
+        html.push(`<tr><td>${escapeHtml(role)}</td><td><pre>${escapeHtml(content)}</pre></td></tr>`);
+      });
+      html.push("</tbody></table>");
+      $("panel-objects").innerHTML = html.join("");
+      $("panel-queries").innerHTML = "";
+      $("panel-relations").innerHTML = "";
+      $("panel-aux").innerHTML = "";
+    }
+
     async function buildFileList() {
       const r = await fetch("/api/tree");
       const j = await r.json();
@@ -365,10 +427,14 @@
       root.innerHTML = "";
       const by = {};
       (j.files || []).forEach((f) => {
-        const k = f.dataset_dir + "/" + f.split;
+        const k = f.dataset_dir + "/" + f.split + " · " + (f.stage || "flat");
         if (!by[k]) by[k] = [];
         by[k].push(f);
       });
+
+      const titleM = document.createElement("h3");
+      titleM.textContent = "Metadata";
+      root.appendChild(titleM);
       Object.keys(by).sort().forEach((k) => {
         const wrap = document.createElement("div");
         const title = document.createElement("h3");
@@ -390,14 +456,61 @@
         });
         root.appendChild(wrap);
       });
+
+      const titleT = document.createElement("h3");
+      titleT.textContent = "Training";
+      root.appendChild(titleT);
+      const parts = (j.training_parts || []);
+      const byp = {};
+      parts.forEach((p) => {
+        const k = p.dataset + "/" + p.split;
+        if (!byp[k]) byp[k] = [];
+        byp[k].push(p);
+      });
+      Object.keys(byp).sort().forEach((k) => {
+        const wrap = document.createElement("div");
+        const title = document.createElement("h3");
+        title.textContent = k;
+        wrap.appendChild(title);
+        byp[k].sort((a,b)=>a.part_id-b.part_id).forEach((p) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "file";
+          b.textContent = `part_${String(p.part_id).padStart(6,"0")}`;
+          b.onclick = () => {
+            document.querySelectorAll("aside button.file").forEach((x) => x.classList.remove("active"));
+            b.classList.add("active");
+            state.training.dataset = p.dataset;
+            state.training.split = p.split;
+            state.training.part = p.part_id;
+            state.training.offset = 0;
+            state.training.idx = 0;
+            fetchTrainingLines();
+          };
+          wrap.appendChild(b);
+        });
+        root.appendChild(wrap);
+      });
     }
 
     $("btn-prev").onclick = () => {
+      if (state.mode === "training") {
+        const tr = state.training;
+        if (tr.idx > 0) tr.idx -= 1;
+        renderTraining();
+        return;
+      }
       if (state.line <= 0) return;
       state.line--;
       fetchRecord();
     };
     $("btn-next").onclick = () => {
+      if (state.mode === "training") {
+        const tr = state.training;
+        if (tr.idx + 1 < (tr.records || []).length) tr.idx += 1;
+        renderTraining();
+        return;
+      }
       if (state.line_count && state.line >= state.line_count - 1) return;
       state.line++;
       fetchRecord();
@@ -405,11 +518,17 @@
     $("line-input").onchange = () => {
       const v = parseInt($("line-input").value, 10);
       if (!Number.isFinite(v) || v < 0) return;
+      if (state.mode === "training") {
+        state.training.offset = v;
+        fetchTrainingLines();
+        return;
+      }
       state.line = v;
       fetchRecord();
     };
     $("btn-seek").onclick = async () => {
       const id = $("seek-id").value.trim();
+      if (state.mode !== "metadata") return;
       if (!id || !state.path) return;
       const r = await fetch(`/api/seek?path=${encodeURIComponent(state.path)}&sample_id=${encodeURIComponent(id)}`);
       const j = await r.json();

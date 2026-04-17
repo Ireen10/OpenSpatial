@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-已打通 **metadata(noQA)→metadata(withQA)→training bundle** 的 dataset-level pipeline（支持 `training_output_root`、全局 QA 配置 `qa_tasks.yaml`、jsonl 文件粒度并行与 resume）；下一步完善 **viz**：同样依赖配置文件，并兼容展示带 QA 的 metadata 与 training bundle。
+已完成 **viz 配置化 + QA/training 兼容浏览**：`openspatial-metadata-viz` 依赖 global/dataset/qa_config，并支持浏览 `metadata_noqa/metadata_qa` 与 training bundle（按 part 粒度 + 分页读取 + tarinfo 切片读图）；下一步补齐更完整的 QA 面板交互与更强的大数据体验（例如更严格的分页/索引策略）。
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-17** | **viz（配置化 + 兼容 QA/training）**：`/api/tree` 同时枚举 metadata（含 `metadata_noqa/metadata_qa` stage）与 training parts（只到 part 粒度）；training JSONL 支持分页读取 `/api/training_lines`（limit 封顶）+ tarinfo 切片读图 `/api/training_image`；UI 增加 Training 模式展示对话与图片。收束见 `metadata/plans/2026-04-17_2350_viz_qa_and_training_viewer/change_log.md`。 |
 | **2026-04-17** | **训练导出 pipeline（并行/断点续跑，最小 E2E）**：CLI 支持 `pipelines` 串联 `to_metadata/ensure_qa/export_training`；新增 `training_output_root`、global `qa_config` + `--qa-config`；训练 bundle 产出 `images/*.tar` + `*_tarinfo.json` + `jsonl/*.jsonl`，并支持 tar member 冲突去重 `__r{input_index}`；含测试配置与 E2E UT。收束见 `metadata/plans/2026-04-17_1059_training_export_parallel_io/change_log.md`。 |
 | **2026-04-17** | **2D 空间关系 annotation（首轮）**：`RelationV0.relation_id`（解析自动补齐）+ `enrich_relations_2d` 统一 id；新 task `task/annotation/spatial_relation_2d.py`、demo 配置、`relation_2d_prompt_templates`；同指代短槽位、双框 tier 排序 + `dual_box_keep_prob`、artifact 生成脚本与聚焦 UT。收束见 `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/change_log.md`。 |
 | **2026-04-16** | **断点续传体验优化**：checkpoint 目录改为按 `output_root/{dataset}/{split}/.checkpoints` 隔离，支持只重跑某个 dataset/split；兼容读取旧的 `output_root/.checkpoints`（只读 fallback）；新增 UT 覆盖并通过。 |
@@ -32,9 +33,9 @@
 
 ## 下一步 TODO（按建议优先级，随实现勾选）
 
-- [ ] **viz（配置化 + 兼容 QA/training）**：`openspatial-metadata-viz` 读取 global/dataset/qa_config，并在 UI 中同时支持：
-  - 展示 `metadata_qa/`（`qa_items`、标框渲染/切换）
-  - 展示 training bundle（`jsonl/part_*.jsonl` + `images/part_*.tar` + `*_tarinfo.json`）
+- [ ] **viz（完善 QA 交互 + 更强大数据体验）**：
+  - metadata 模式新增明确的 `qa_items` 面板（过滤/搜索/跳转）与必要的轻量分页（若单文件特别大）
+  - training 模式支持更稳定的“随机跳转/定位”能力（例如行号索引或 sidecar index），并限制 `line_count` 的计算成本
 - [ ] **metadata_spec_v0**：在 `metadata/docs/metadata_spec_v0_zh.md` 补一节 `RelationV0.relation_id`（格式、自动生成、与 QA `meta` 追溯对齐）；与首轮 annotation 交付对齐。  
 - [ ] **CI**：在 Linux 上跑 `pytest metadata/tests`（若仓库尚无 workflow，可在 OpenSpatial 根或子项目加一条）。  
 - [ ] **规模化接入真实数据**：为每个真实数据集补齐 `datasets/<name>/dataset.yaml`（含 inputs/glob、output_root、meta、enrich 开关），并补“样例+解析约束”的 plans。  
@@ -48,6 +49,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-17_2350_viz_qa_and_training_viewer/` | **已交付（实现 + 自测 + 收束）**：viz 配置化 + 兼容 QA/training（分页 + tar 切片读图）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-17_1059_training_export_parallel_io/` | **已交付（实现 + 自测 + 收束）**：dataset-level pipeline（ensure_qa + training export）、并行与 resume；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/` | **已交付（首轮实现 + 收束）**：2D 空间关系 annotation task + `relation_id`；见该目录 `change_log.md`、`plan.md` 收束节 |
 | `metadata/plans/2026-04-15_2152_checkpoint_scoped/` | **已交付**：checkpoint 按 dataset/split 隔离 + 旧位置兼容读取；见该目录 `change_log.md` |

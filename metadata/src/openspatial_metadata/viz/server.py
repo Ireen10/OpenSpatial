@@ -7,14 +7,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict
 
-from .config_index import DatasetIndexEntry, resolved_image_root
+from .config_index import DatasetIndexEntry, resolved_image_root, resolved_training_root
 from .paths import (
     count_lines_jsonl,
     enumerate_metadata_jsonl,
+    enumerate_training_parts,
     find_sample_line,
     is_under_root,
     read_line_jsonl,
+    read_lines_jsonl,
+    read_tar_member_by_tarinfo,
     safe_file_under_root,
+    guess_content_type_from_name,
 )
 
 
@@ -55,6 +59,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
         output_root: Path = self.server.output_root  # type: ignore[attr-defined]
         dataset_index: Dict[str, DatasetIndexEntry] = self.server.dataset_index  # type: ignore[attr-defined]
         default_scale: int = self.server.default_scale  # type: ignore[attr-defined]
+        qa_config_path: str | None = getattr(self.server, "qa_config_path", None)  # type: ignore[attr-defined]
 
         try:
             if path in ("/", "/index.html"):
@@ -63,13 +68,28 @@ class VizRequestHandler(BaseHTTPRequestHandler):
 
             if path == "/api/tree":
                 files = enumerate_metadata_jsonl(output_root)
-                _send_json(self, {"output_root": str(output_root), "files": files})
+                # enumerate training parts per-dataset using dataset.training_output_root
+                parts = []
+                for name in sorted(dataset_index.keys()):
+                    tr = resolved_training_root(dataset_index, name)
+                    if tr is None:
+                        continue
+                    parts.extend(enumerate_training_parts(tr))
+                _send_json(
+                    self,
+                    {
+                        "output_root": str(output_root),
+                        "files": files,
+                        "training_parts": parts,
+                    },
+                )
                 return
 
             if path == "/api/config":
                 cfg = {
                     "output_root": str(output_root),
                     "default_scale": default_scale,
+                    "qa_config_path": qa_config_path,
                     "datasets": [
                         {
                             "name": name,
@@ -78,6 +98,10 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                                 str(resolved_image_root(dataset_index, name))
                                 if ent.dataset.viz and ent.dataset.viz.image_root
                                 else None
+                            ),
+                            "training_root": (ent.dataset.training_output_root if getattr(ent.dataset, "training_output_root", None) else None),
+                            "training_root_resolved": (
+                                str(resolved_training_root(dataset_index, name)) if resolved_training_root(dataset_index, name) else None
                             ),
                             "config_path": ent.config_path,
                         }
@@ -166,6 +190,89 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 _send_bytes(self, ok.read_bytes(), ct)
                 return
 
+            if path == "/api/training_lines":
+                dataset_name = (qs.get("dataset") or [None])[0]
+                split_name = (qs.get("split") or [None])[0]
+                part_s = (qs.get("part") or [None])[0]
+                offset_s = (qs.get("offset") or ["0"])[0]
+                limit_s = (qs.get("limit") or ["50"])[0]
+                if not dataset_name or not split_name or not part_s:
+                    _send_json(self, {"error": "missing dataset/split/part"}, 400)
+                    return
+                try:
+                    part_id = int(part_s)
+                    offset = int(offset_s)
+                    limit = int(limit_s)
+                except ValueError:
+                    _send_json(self, {"error": "bad part/offset/limit"}, 400)
+                    return
+                limit = max(1, min(limit, 200))
+                tr = resolved_training_root(dataset_index, dataset_name)
+                if tr is None:
+                    _send_json(self, {"error": "training_output_root not set for dataset", "dataset": dataset_name}, 404)
+                    return
+                jsonl_path = (tr / dataset_name / split_name / "jsonl" / f"part_{part_id:06d}.jsonl").resolve()
+                if not is_under_root(jsonl_path, tr):
+                    _send_json(self, {"error": "path outside training_root"}, 403)
+                    return
+                if not jsonl_path.is_file():
+                    _send_json(self, {"error": "jsonl not found"}, 404)
+                    return
+                recs, total = read_lines_jsonl(jsonl_path, offset=offset, limit=limit)
+                _send_json(
+                    self,
+                    {
+                        "dataset": dataset_name,
+                        "split": split_name,
+                        "part": part_id,
+                        "offset": offset,
+                        "limit": limit,
+                        "line_count": total,
+                        "records": recs,
+                    },
+                )
+                return
+
+            if path == "/api/training_image":
+                dataset_name = (qs.get("dataset") or [None])[0]
+                split_name = (qs.get("split") or [None])[0]
+                part_s = (qs.get("part") or [None])[0]
+                rel_img = (qs.get("relpath") or [None])[0]
+                if not dataset_name or not split_name or not part_s or not rel_img:
+                    _send_json(self, {"error": "missing dataset/split/part/relpath"}, 400)
+                    return
+                try:
+                    part_id = int(part_s)
+                except ValueError:
+                    _send_json(self, {"error": "bad part"}, 400)
+                    return
+                tr = resolved_training_root(dataset_index, dataset_name)
+                if tr is None:
+                    _send_json(self, {"error": "training_output_root not set for dataset", "dataset": dataset_name}, 404)
+                    return
+                tar_path = (tr / dataset_name / split_name / "images" / f"part_{part_id:06d}.tar").resolve()
+                tarinfo_path = (tr / dataset_name / split_name / "images" / f"part_{part_id:06d}_tarinfo.json").resolve()
+                if not is_under_root(tar_path, tr) or not is_under_root(tarinfo_path, tr):
+                    _send_json(self, {"error": "path outside training_root"}, 403)
+                    return
+                if not tar_path.is_file() or not tarinfo_path.is_file():
+                    _send_json(self, {"error": "tar/tarinfo not found"}, 404)
+                    return
+                idx = json.loads(tarinfo_path.read_text(encoding="utf-8"))
+                ent = idx.get(rel_img)
+                if not isinstance(ent, dict):
+                    _send_json(self, {"error": "relpath not in tarinfo", "relpath": rel_img}, 404)
+                    return
+                od = ent.get("offset_data")
+                sz = ent.get("size")
+                if not isinstance(od, int) or not isinstance(sz, int):
+                    _send_json(self, {"error": "bad tarinfo entry", "relpath": rel_img}, 500)
+                    return
+                data = read_tar_member_by_tarinfo(tar_path, offset_data=od, size=sz)
+                ct = guess_content_type_from_name(rel_img)
+                _send_bytes(self, data, ct)
+                return
+
             _send_json(self, {"error": "not found"}, 404)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as e:
             _send_json(self, {"error": str(e)}, 500)
@@ -178,11 +285,13 @@ def create_server(
     output_root: Path,
     dataset_index: Dict[str, DatasetIndexEntry],
     default_scale: int,
+    qa_config_path: str | None = None,
 ) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), VizRequestHandler)
     httpd.output_root = output_root.resolve()  # type: ignore[attr-defined]
     httpd.dataset_index = dataset_index  # type: ignore[attr-defined]
     httpd.default_scale = default_scale  # type: ignore[attr-defined]
+    httpd.qa_config_path = qa_config_path  # type: ignore[attr-defined]
     return httpd
 
 

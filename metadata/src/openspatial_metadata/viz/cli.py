@@ -27,6 +27,11 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Optional global.yaml for default output_root and scale.",
     )
+    p.add_argument(
+        "--qa-config",
+        default=None,
+        help="Optional qa_tasks.yaml (overrides global.yaml.qa_config). Used for display only.",
+    )
     p.add_argument("--host", default="127.0.0.1", help="Bind address.")
     p.add_argument("--port", type=int, default=8765, help="Bind port.")
     args = p.parse_args(argv)
@@ -40,12 +45,14 @@ def main(argv: list[str] | None = None) -> None:
     config_root = Path(args.config_root)
     idx = build_dataset_index(config_root)
 
+    qa_cfg = args.qa_config or getattr(g, "qa_config", None)
     httpd = create_server(
         args.host,
         args.port,
         output_root=output_root,
         dataset_index=idx,
         default_scale=int(g.scale),
+        qa_config_path=str(qa_cfg) if qa_cfg else None,
     )
     print(
         f"[openspatial-metadata-viz] serving http://{args.host}:{args.port}/  "
