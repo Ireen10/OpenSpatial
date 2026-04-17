@@ -465,6 +465,6 @@ def _build_judgment(
         statement_direction = DIR_OPPOSITE.get(true_direction, true_direction)
     statement = tpl.render_judgment_statement(anchor=anchor_text, target=target_text, statement_direction=statement_direction)
     question = tpl.render_judgment_question(rng, anchor=anchor_text, target=target_text, statement=statement)
-    answer = tpl.render_judgment_answer(mode=mode, anchor=anchor_text, target=target_text, true_direction=true_direction)
+    answer = tpl.render_judgment_answer(rng, mode=mode, anchor=anchor_text, target=target_text, true_direction=true_direction)
     return question, answer, {"judgment_mode": mode, "statement_direction": statement_direction}
 

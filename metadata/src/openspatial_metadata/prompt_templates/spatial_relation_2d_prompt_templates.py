@@ -159,15 +159,18 @@ def render_full_sentence_question(rng: random.Random, *, anchor: str, target: st
 
 def render_full_sentence_answer(*, anchor: str, target: str, direction: str) -> str:
     # Keep answer variations fully within templates.
-    tpl = (
-        FULL_SENTENCE_ANSWERS_BY_MODE.get("one_sentence") or ["In the image plane, {target} is {direction} {anchor}."]
-    )[0]
+    pool = FULL_SENTENCE_ANSWERS_BY_MODE.get("one_sentence") or [
+        "In the image plane, {target} is {direction} {anchor}."
+    ]
+    tpl = random.choice(pool) if pool else "In the image plane, {target} is {direction} {anchor}."
     return _fmt(tpl, anchor=anchor, target=target, direction=direction)
 
 
-def render_full_sentence_answer_by_mode(*, mode: str, anchor: str, target: str, direction: str) -> str:
+def render_full_sentence_answer_by_mode(
+    rng: random.Random, *, mode: str, anchor: str, target: str, direction: str
+) -> str:
     pool = FULL_SENTENCE_ANSWERS_BY_MODE.get(mode) or FULL_SENTENCE_ANSWERS_BY_MODE["one_sentence"]
-    tpl = pool[0] if pool else "{direction}"
+    tpl = rng.choice(pool) if pool else "{direction}"
     return _fmt(tpl, anchor=anchor, target=target, direction=direction)
 
 
@@ -193,7 +196,7 @@ def render_full_sentence_qa_pair(rng: random.Random, *, anchor: str, target: str
         ans_mode = inst_mode
 
     question = _join_parts([task, q, ins])
-    answer = render_full_sentence_answer_by_mode(mode=ans_mode, anchor=anchor, target=target, direction=direction)
+    answer = render_full_sentence_answer_by_mode(rng, mode=ans_mode, anchor=anchor, target=target, direction=direction)
     return question, answer
 
 
@@ -216,7 +219,7 @@ def render_full_sentence_qa_pair_with_modes(
         ans_mode = inst_mode
 
     question = _join_parts([task, q, ins])
-    answer = render_full_sentence_answer_by_mode(mode=ans_mode, anchor=anchor, target=target, direction=direction)
+    answer = render_full_sentence_answer_by_mode(rng, mode=ans_mode, anchor=anchor, target=target, direction=direction)
     return question, answer, inst_mode, ans_mode
 
 
@@ -244,11 +247,13 @@ def render_single_axis_question(
     return _join_parts([task, q, ins])
 
 
-def render_single_axis_answer_by_mode(*, mode: str, truth: str, option_a: str, option_b: str) -> str:
+def render_single_axis_answer_by_mode(
+    rng: random.Random, *, mode: str, truth: str, option_a: str, option_b: str
+) -> str:
     letter = "A" if truth == option_a else "B"
     text = option_a if letter == "A" else option_b
     pool = SINGLE_AXIS_ANSWERS_BY_MODE.get(mode) or SINGLE_AXIS_ANSWERS_BY_MODE["mcq_letter"]
-    tpl = pool[0] if pool else "{letter}"
+    tpl = rng.choice(pool) if pool else "{letter}"
     return _fmt(tpl, letter=letter, text=text)
 
 
@@ -290,13 +295,16 @@ def render_single_axis_qa_pair_with_modes(
         ans_mode = inst_mode
 
     question = _join_parts([task, q, ins])
-    answer = render_single_axis_answer_by_mode(mode=ans_mode, truth=truth, option_a=option_a, option_b=option_b)
+    answer = render_single_axis_answer_by_mode(
+        rng, mode=ans_mode, truth=truth, option_a=option_a, option_b=option_b
+    )
     return question, answer, inst_mode, ans_mode
 
 
 def render_single_axis_answer(*, truth: str, option_a: str, option_b: str) -> str:
     # Backward-compat: default to letter-only.
-    return render_single_axis_answer_by_mode(mode="mcq_letter", truth=truth, option_a=option_a, option_b=option_b)
+    rng = random.Random(0)
+    return render_single_axis_answer_by_mode(rng, mode="mcq_letter", truth=truth, option_a=option_a, option_b=option_b)
 
 
 def render_judgment_statement(*, anchor: str, target: str, statement_direction: str) -> str:
@@ -313,6 +321,7 @@ def render_judgment_question(rng: random.Random, *, anchor: str, target: str, st
 
 
 def render_judgment_answer(
+    rng: random.Random,
     *,
     mode: str,
     anchor: str,
@@ -321,22 +330,30 @@ def render_judgment_answer(
 ) -> str:
     full_sentence = render_full_sentence_answer(anchor=anchor, target=target, direction=true_direction)
     if mode == "correct":
-        tpl = JUDGMENT_ANSWER_CORRECT_POOL[0] if JUDGMENT_ANSWER_CORRECT_POOL else "Correct."
+        tpl = rng.choice(JUDGMENT_ANSWER_CORRECT_POOL) if JUDGMENT_ANSWER_CORRECT_POOL else "Correct."
         return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
     if mode == "partial":
-        tpl = JUDGMENT_ANSWER_PARTIAL_POOL[0] if JUDGMENT_ANSWER_PARTIAL_POOL else "Partially correct. {full_sentence}"
+        tpl = (
+            rng.choice(JUDGMENT_ANSWER_PARTIAL_POOL)
+            if JUDGMENT_ANSWER_PARTIAL_POOL
+            else "Partially correct. {full_sentence}"
+        )
         return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
-    tpl = JUDGMENT_ANSWER_INCORRECT_POOL[0] if JUDGMENT_ANSWER_INCORRECT_POOL else "Incorrect. {full_sentence}"
+    tpl = (
+        rng.choice(JUDGMENT_ANSWER_INCORRECT_POOL)
+        if JUDGMENT_ANSWER_INCORRECT_POOL
+        else "Incorrect. {full_sentence}"
+    )
     return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
 
 
 def render_marked_ref_same_phrase(*, color: str) -> str:
-    tpl = MARKED_REF_SAME_PHRASE_POOL[0] if MARKED_REF_SAME_PHRASE_POOL else "the object in the {color} box"
+    tpl = random.choice(MARKED_REF_SAME_PHRASE_POOL) if MARKED_REF_SAME_PHRASE_POOL else "the object in the {color} box"
     return tpl.format(color=color)
 
 
 def render_marked_ref_with_hint(*, name: str, color: str) -> str:
-    tpl = MARKED_REF_WITH_HINT_POOL[0] if MARKED_REF_WITH_HINT_POOL else "{name} (the object in the {color} box in the image)"
+    tpl = random.choice(MARKED_REF_WITH_HINT_POOL) if MARKED_REF_WITH_HINT_POOL else "{name} (the object in the {color} box in the image)"
     return tpl.format(name=name, color=color)
 
 
