@@ -50,7 +50,7 @@ class TestJsonlParallel(unittest.TestCase):
                 )
                 g = tmp / "g.yaml"
                 g.write_text(
-                    "output_root: x\n"
+                    "metadata_output_root: x\n"
                     "batch_size: 2\n"
                     f"num_workers: {num_workers_yaml}\n"
                     "resume: false\n",
@@ -109,7 +109,7 @@ class TestJsonFilesParallel(unittest.TestCase):
             )
             g = tmp / "g.yaml"
             g.write_text(
-                "output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: false\n",
+                "metadata_output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: false\n",
                 encoding="utf-8",
             )
             out = tmp / "out"
@@ -175,7 +175,7 @@ class TestJsonlResumeAfterParallelFailure(unittest.TestCase):
 
             g = tmp / "g.yaml"
             g.write_text(
-                "output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: false\nstrict: true\n",
+                "metadata_output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: false\nstrict: true\n",
                 encoding="utf-8",
             )
             out = tmp / "out"
@@ -200,7 +200,7 @@ class TestJsonlResumeAfterParallelFailure(unittest.TestCase):
 
             g_resume = tmp / "g_resume.yaml"
             g_resume.write_text(
-                "output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: true\nstrict: true\n",
+                "metadata_output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: true\nstrict: true\n",
                 encoding="utf-8",
             )
             main(
@@ -252,7 +252,7 @@ class TestStrictJsonFiles(unittest.TestCase):
             )
             g = tmp / "g.yaml"
             g.write_text(
-                "output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: false\n",
+                "metadata_output_root: x\nbatch_size: 2\nnum_workers: 2\nresume: false\n",
                 encoding="utf-8",
             )
             out = tmp / "out"

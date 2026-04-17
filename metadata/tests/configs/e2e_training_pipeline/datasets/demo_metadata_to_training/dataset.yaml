@@ -1,5 +1,5 @@
 name: "demo_metadata_to_training"
-output_root: "metadata/tests/.tmp_pipeline_out/metadata"
+metadata_output_root: "metadata/tests/.tmp_pipeline_out/metadata"
 training_output_root: "metadata/tests/.tmp_pipeline_out/training"
 viz:
   image_root: "metadata/tests/fixtures/images"

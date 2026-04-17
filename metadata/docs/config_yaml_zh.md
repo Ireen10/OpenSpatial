@@ -13,7 +13,7 @@
 - **作用**：为一次 CLI 运行提供**跨数据集共用**的默认值（输出根目录、批大小、是否续跑等）。
 - **是否必须**：**否**。不传 `--global-config` 时，使用代码内置默认值（见下文「Global 字段」中的默认值列）。
 - **与 CLI 的关系**：
-  - `--output-root` 若指定，则**覆盖** global 中的 `output_root`。
+  - `--output-root` 若指定，则**覆盖** global 中的 `metadata_output_root`。
   - `--resume` 为真时，与 global 中的 `resume` **逻辑或**：任一为真即按续跑处理。
   - `--num-workers` 若大于 `0`，则**覆盖** global 的 `num_workers`；若为 `0`（默认），则沿用 global 的 `num_workers`。
 
@@ -30,7 +30,8 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `output_root` | string | `metadata_out` | 输出根目录。CLI `--output-root` 可覆盖。其下会按 `数据集名 / split 名` 建子目录。 |
+| `metadata_output_root` | string | `metadata_out` | **metadata 输出根目录**。CLI `--output-root` 可覆盖（仅覆盖 metadata）。其下会按 `数据集名 / split 名` 建子目录。 |
+| `training_output_root` | string, 可选 | `null` | **训练数据输出根目录**（training bundle）。dataset 可覆盖；若 dataset 也未配置，则回退到 `metadata_output_root`。 |
 | `scale` | int | `1000` | 归一化坐标刻度（与 metadata v0 中 `coord_scale` 等概念对齐）；当前 CLI 主流程中未强依赖，供后续与工具函数使用。 |
 | `batch_size` | int | `1000` | JSONL 写出时**攒批条数**：每满一批写盘并更新 checkpoint（JSONL）。 |
 | `num_workers` | int | `0` | 与 CLI `--num-workers` 合并得到**基础并行度**，再与展开后的输入文件数、硬顶 `32` 取最小值得到有效并行度 `effective`（见下文「并行与 `num_workers`」）。`effective <= 1` 时不创建线程池，整段 split 顺序执行。 |
@@ -49,17 +50,17 @@
 ### `name`（必填）
 
 - **类型**：string  
-- **说明**：数据集标识，同时用于输出目录名：`{output_root}/{name}/{split.name}/...`。
+- **说明**：数据集标识，同时用于输出目录名：`{metadata_output_root}/{name}/{split.name}/...`。
 
 ### `meta`（可选）
 
 - **类型**：任意 YAML 映射（在模型中为 `Dict[str, Any]`）  
 - **说明**：数据集级元信息（来源、版本说明、许可证等），**不参与路径解析**；可自由扩展。
 
-### `output_root`（可选）
+### `metadata_output_root`（可选）
 
 - **类型**：string  
-- **说明**：仅作用于**本数据集**的写出根目录；若省略则使用 global 的 `output_root`。与 CLI `--output-root`（全局覆盖）的优先级关系见 `metadata/src/openspatial_metadata/cli.py`。
+- **说明**：仅作用于**本数据集**的 metadata 写出根目录；若省略则使用 global 的 `metadata_output_root`。与 CLI `--output-root`（全局覆盖 metadata）的优先级关系见 `metadata/src/openspatial_metadata/cli.py`。
 
 ### `viz`（可选）
 
@@ -74,7 +75,7 @@
 ### `training_output_root`（可选）
 
 - **类型**：string
-- **说明**：训练数据 bundle（`images/*.tar` + `*_tarinfo.json` + `jsonl/*.jsonl`）的输出根目录。若省略则回退到 `{dataset.output_root or global.output_root}`。
+- **说明**：训练数据 bundle（`images/*.tar` + `*_tarinfo.json` + `jsonl/*.jsonl`）的输出根目录。若省略则回退到 `{global.training_output_root or dataset.metadata_output_root or global.metadata_output_root}`。
 
 ### `pipelines`（可选，推荐用于端到端）
 
@@ -116,7 +117,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `name` | string | 输出子目录名：`{output_root}/{dataset.name}/{name}/`。 |
+| `name` | string | 输出子目录名：`{metadata_output_root}/{dataset.name}/{name}/`。 |
 | `input_type` | string | **`jsonl`** 或 **`json_files`**（仅此两种）。 |
 | `inputs` | string 列表 | 输入路径或模式列表，见下一节。 |
 

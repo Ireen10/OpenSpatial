@@ -20,7 +20,7 @@ class TestCliDatasetOutputRoot(unittest.TestCase):
             # Global config (fallback output_root shouldn't be used here).
             g = tmp / "g.yaml"
             g.write_text(
-                "output_root: fallback\nbatch_size: 2\nnum_workers: 0\nresume: false\nstrict: true\n",
+                "metadata_output_root: fallback\nbatch_size: 2\nnum_workers: 0\nresume: false\nstrict: true\n",
                 encoding="utf-8",
             )
 
@@ -37,7 +37,7 @@ class TestCliDatasetOutputRoot(unittest.TestCase):
                 "\n".join(
                     [
                         "name: dsa",
-                        f'output_root: "{out_a.as_posix()}"',
+                        f'metadata_output_root: "{out_a.as_posix()}"',
                         "adapter: {file_name: passthrough, class_name: PassthroughAdapter}",
                         "splits:",
                         "  - name: s",
@@ -53,7 +53,7 @@ class TestCliDatasetOutputRoot(unittest.TestCase):
                 "\n".join(
                     [
                         "name: dsb",
-                        f'output_root: "{out_b.as_posix()}"',
+                        f'metadata_output_root: "{out_b.as_posix()}"',
                         "adapter: {file_name: passthrough, class_name: PassthroughAdapter}",
                         "splits:",
                         "  - name: s",

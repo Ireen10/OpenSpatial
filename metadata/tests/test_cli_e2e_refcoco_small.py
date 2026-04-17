@@ -17,7 +17,7 @@ class TestCliE2ERefcocoSmall(unittest.TestCase):
             out_root = tmp / "out"
             global_path = tmp / "global.yaml"
             global_path.write_text(
-                "output_root: placeholder\n"
+                "metadata_output_root: placeholder\n"
                 "scale: 777\n"
                 "batch_size: 1\n"
                 "num_workers: 0\n"

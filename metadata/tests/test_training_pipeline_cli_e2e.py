@@ -31,7 +31,7 @@ def test_training_pipeline_cli_e2e(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         "\n".join(
             [
                 'name: "demo_metadata_to_training"',
-                f'output_root: "{(out_root / "metadata").as_posix()}"',
+                f'metadata_output_root: "{(out_root / "metadata").as_posix()}"',
                 f'training_output_root: "{(out_root / "training").as_posix()}"',
                 "viz:",
                 '  image_root: "metadata/tests/fixtures/images"',
