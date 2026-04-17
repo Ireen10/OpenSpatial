@@ -3,6 +3,22 @@ from __future__ import annotations
 import random
 from typing import Dict, Tuple
 
+"""
+To Cursor Agent:
+以下是我的设想：
+1. prompt的构成应该拆成三部分：
+1）任务描述：也就是告诉模型应该专注于图像平面上的空间方位关系（比如你下面写的Consider the positions of {target} and {anchor} in the image plane.） 
+2）问题模板：query的主体内容，必须有。
+3）指令遵从部分：例如选择题为仅输出回答。判断题为输出判断结果，如果正确怎么样，如果错误怎么样。自由语言描述要求模型如何回答，是完整回答句子，还是回答一个简短的方位。
+
+其中任务描述是需要的，因为要和3D空间关系的识别区分开，也就是说至少要让模型知道当前需要识别图像中的位置。
+问题模板是必需的，问法要接近人类，不要生硬地问。单轴问题需要模型聚焦哪个轴应当放在这一部分，并且不要用Focus on the image-plane relation between {target} and {anchor}.这种方式说明，可以换一种问法比如说target和anchor在水平方向上的相对位置时怎样的。融入到问题中。
+指令遵从部分是可以为空的，并且需要针对不同题目进行设计。
+
+然后每个部分都应该给一些备选描述，在生成prompt时从备选描述中选择并拼接即可（需要注意大小写问题，包括{target}{anchor}的首字母大小写问题）
+
+answer则需要每种问题各自设计模板，对于有指令遵从要求的，使用某个固定的回答方式。对于没有指令遵从要求的，从回答方式中随机选择一种形式进行回答。（定性来说是这样，如果具体有啥问题再讨论）
+"""
 
 FULL_SENTENCE_QUESTION_TEMPLATES = [
     "Determine the 2D spatial relation between {target} and {anchor} in the image plane.",

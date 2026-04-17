@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
-from openspatial_metadata.prompt_templates import spatial_relation_2d as tpl
+from openspatial_metadata.prompt_templates import spatial_relation_2d_prompt_templates as tpl
 
 
 FULL_SENTENCE = "full_sentence"
