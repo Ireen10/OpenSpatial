@@ -70,7 +70,7 @@ FULL_SENTENCE_QUESTION_POOL = [
 SINGLE_AXIS_QUESTION_POOL = [
     "Compare {target} and {anchor} along the {axis_name} direction. Where is {target} relative to {anchor}?\nOptions: A. {option_a} B. {option_b}",
     "Along the {axis_name} axis in the image, where is {target} with respect to {anchor}?\nOptions: A. {option_a} B. {option_b}",
-    "Only considering {axis_name} position, is {target} on the {option_a} side or the {option_b} side of {anchor}?\nOptions: A. {option_a} B. {option_b}",
+    "Only considering {axis_name} position, which sentence is correct?\nA. {target} is {option_a} {anchor}.\nB. {target} is {option_b} {anchor}.",
     "In terms of {axis_name} placement in the picture, where is {target} compared with {anchor}?\nOptions: A. {option_a} B. {option_b}",
     "Looking at the {axis_name} direction only, which option best describes where {target} is relative to {anchor}?\nOptions: A. {option_a} B. {option_b}",
 ]
@@ -87,10 +87,13 @@ JUDGMENT_QUESTION_POOL = [
 FULL_SENTENCE_INSTRUCTION_POOL = [
     # Optional: leave empty to allow free-form answers.
     "Answer with one complete sentence.",
+    # "Short" mode: return ONLY a direction phrase (no full sentence).
+    # Examples: upper left / lower right / left / right / above / below.
+    "Answer with only a short direction phrase (e.g., upper left, left, above). Do not write a full sentence.",
 ]
 
 SINGLE_AXIS_INSTRUCTION_POOL = [
-    "Respond with ONLY the letter A or B.",
+    "Respond with one letter.",
 ]
 
 JUDGMENT_INSTRUCTION_POOL = [
