@@ -1,24 +1,38 @@
+## Dataset template: demo (raw -> metadata -> QA -> training)
+#
+# This is a small, readable example with defaults called out.
+
 name: "demo_metadata_to_training"
 
-# Where to write metadata jsonl outputs:
+# Optional. If omitted, uses global.metadata_output_root.
 metadata_output_root: "metadata_out"
 
-# Where to write training bundle outputs (tar+tarinfo+jsonl):
+# Optional. If omitted, uses global.training_output_root (if set), else falls back to metadata_output_root.
 training_output_root: "training_out"
 
 viz:
-  # Root directory for original images (used by openspatial-metadata-viz /api/image).
+  # Optional. Root directory for original images (used by openspatial-metadata-viz /api/image).
+  # If relative, resolved against this dataset.yaml directory.
   image_root: "path/to/images_root"
 
 splits:
   - name: "train_small"
     input_type: "jsonl"
     inputs:
-      - "path/to/input.jsonl"
+      - "path/to/raw_or_metadata_input.jsonl"
 
 pipelines:
+  # Stage switches (optional; defaults shown in comments):
+  # - to_metadata: default true
+  # - ensure_qa: default true
+  # - export_training: default true
   to_metadata: true
   ensure_qa: true
   export_training: true
+
+  # Required when ensure_qa is true.
   qa_task_name: "spatial_relation_2d"
+
+  # Optional overrides:
+  # qa_task_overrides: {}
 

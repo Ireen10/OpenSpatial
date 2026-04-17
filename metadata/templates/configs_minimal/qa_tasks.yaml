@@ -1,3 +1,14 @@
+## QA task registry template
+#
+# This file registers QA tasks and their default params.
+# Datasets reference a task by pipelines.qa_task_name and may override small pieces
+# via pipelines.qa_task_overrides (mapping).
+#
+# Notes:
+# - tasks.<name>.enabled: optional (default true). Set false to disable a task.
+# - tasks.<name>.type: required non-empty string.
+# - tasks.<name>.params: optional mapping (default {}).
+
 version: 1
 
 # Global QA task registry (shared across datasets).
@@ -7,20 +18,32 @@ version: 1
 
 tasks:
   spatial_relation_2d:
-    type: image_2d_relation
+    # type is used to dispatch to an implementation. For 2D we use "spatial_relation_2d".
+    # (The registry name is still "spatial_relation_2d".)
+    type: spatial_relation_2d
     params:
+      # Optional (default: 7). Use null to make non-deterministic per-run.
       random_seed: 7
+      # Optional (default: 0.82). When both objects are uniquely identifiable by text,
+      # keep "text-only" reference with this probability (no boxes).
       unique_text_only_prob: 0.82
+      # Optional (default: 0.1). When both anchor+target are marked, keep dual marks with this probability.
       dual_box_keep_prob: 0.1
+      # Optional (default: true). Prefer relations that require fewer marks (cheaper visually).
       prioritize_low_mark_relations: true
+      # Optional (default: 0.75). Whether a diagonal relation can be judged "partially correct".
       partial_correct_ratio_threshold: 0.75
+      # Optional (default: 0.2). When choosing axis for single_axis questions, treat du~dv as "close".
       axis_close_ratio_threshold: 0.2
+      # Optional (default: 0.15). Jitter for shortage planning when requested QA count > available relations.
       shortage_randomness: 0.15
       judgment_distribution:
+        # Optional (defaults shown). We sample one of these modes.
         incorrect: 0.5
         partial: 0.15
         correct: 0.35
       sub_tasks:
+        # Optional (defaults depend on implementation). Counts per style to generate per sample.
         single_axis: 2
         full_sentence: 2
         judgment: 2

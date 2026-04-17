@@ -1,0 +1,57 @@
+## Dataset template: E2E-A (raw -> metadata -> QA -> training)
+#
+# Use this when your input is NOT metadata yet (needs adapter/meta/enrich).
+
+name: "your_dataset_name"
+
+# Optional. If omitted, CLI uses global.metadata_output_root.
+metadata_output_root: "metadata_out"
+
+# Optional. If omitted, CLI uses global.training_output_root (if set),
+# otherwise falls back to metadata_output_root.
+training_output_root: "training_out"
+
+# Optional metadata injected into outputs (free-form mapping).
+meta:
+  source: "your_source"
+  version_note: "optional"
+
+# Optional. If omitted, no adapter is used and input is treated as metadata-like dicts.
+# Common pattern: adapter converts upstream jsonl -> metadata v0 dict.
+adapter:
+  # Either (file_name + class_name) or (module + class_name).
+  file_name: "passthrough"
+  class_name: "PassthroughAdapter"
+
+# Optional enrich switches (extra keys allowed).
+enrich:
+  relations_2d: true
+  relations_3d: false
+
+viz:
+  # Optional. Used only by openspatial-metadata-viz to load original images.
+  # If relative, it is resolved against the dataset.yaml directory.
+  image_root: "path/to/images_root"
+
+splits:
+  - name: "train"
+    input_type: "jsonl"
+    inputs:
+      - "path/to/raw_input.jsonl"
+
+pipelines:
+  # Stage switches (all optional; defaults shown):
+  # - to_metadata: default true
+  # - ensure_qa: default true (when pipelines is present and enabled)
+  # - export_training: default true (when pipelines is present and enabled)
+  to_metadata: true
+  ensure_qa: true
+  export_training: true
+
+  # Required when ensure_qa/export_training needs QA.
+  qa_task_name: "spatial_relation_2d"
+
+  # Optional mapping to override params in qa_tasks.yaml for this dataset only.
+  # qa_task_overrides:
+  #   dual_box_keep_prob: 0.2
+

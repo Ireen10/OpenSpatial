@@ -1,0 +1,25 @@
+## Dataset template: E2E-B (metadata(noQA) -> QA -> training)
+#
+# Use this when your input records are already MetadataV0-compatible, but do NOT contain qa_items.
+
+name: "your_dataset_name"
+
+metadata_output_root: "metadata_out"        # optional (default: global.metadata_output_root)
+training_output_root: "training_out"        # optional (default: global.training_output_root or metadata_output_root)
+
+viz:
+  image_root: "path/to/images_root"         # optional
+
+splits:
+  - name: "train"
+    input_type: "jsonl"
+    inputs:
+      - "path/to/metadata_noqa.metadata.jsonl"
+
+pipelines:
+  # Input is already metadata
+  to_metadata: false
+  ensure_qa: true
+  export_training: true
+  qa_task_name: "spatial_relation_2d"
+

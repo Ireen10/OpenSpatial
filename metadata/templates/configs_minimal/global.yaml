@@ -1,14 +1,45 @@
-metadata_output_root: metadata_out
+## Global config template (openspatial-metadata)
+#
+# This file provides defaults shared across datasets.
+# All paths may be absolute, or relative to the *current working directory* where you run the CLI.
+#
+# Optional vs default values (when omitted):
+# - metadata_output_root: defaults to "metadata_out"
+# - training_output_root: defaults to null (then training falls back to metadata_output_root unless dataset overrides)
+# - scale: defaults to 1000
+# - batch_size: defaults to 1000
+# - num_workers: defaults to 0
+# - resume: defaults to false
+# - strict: defaults to true
+# - qa_config: defaults to null
+
+# Default output root for metadata jsonl:
+metadata_output_root: "metadata_out"
+
+# Optional default output root for training bundles (tar+tarinfo+jsonl).
+# If omitted:
+# - if dataset.training_output_root is set -> use it
+# - else if global.training_output_root is set -> use it
+# - else -> fall back to (CLI --output-root OR dataset.metadata_output_root OR global.metadata_output_root)
+training_output_root: "training_out"
+
+# Default coordinate scale used by adapters/enrich/viz fallback.
 scale: 1000
-batch_size: 3
-num_workers: 2
+
+# JSONL flush batch size (metadata writing).
+batch_size: 1000
+
+# File-level parallelism for jsonl sources:
+# - 0 means "sequential"
+num_workers: 0
+
+# Whether to resume from checkpoints.
 resume: false
+
+# strict=true: fail fast (exit code 1) on worker exceptions.
 strict: true
 
 # Global QA task registry (shared across datasets).
 # Can be overridden by CLI --qa-config.
 qa_config: metadata/templates/configs_minimal/qa_tasks.yaml
-
-# Optional: unified default training output root (datasets may override).
-# training_output_root: training_out
 

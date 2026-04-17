@@ -1,0 +1,26 @@
+## Dataset template: E2E-C (metadata(withQA) -> training)
+#
+# Use this when your input MetadataV0 jsonl already contains qa_items.
+
+name: "your_dataset_name"
+
+metadata_output_root: "metadata_out"        # optional (default: global.metadata_output_root)
+training_output_root: "training_out"        # optional (default: global.training_output_root or metadata_output_root)
+
+viz:
+  image_root: "path/to/images_root"         # optional
+
+splits:
+  - name: "train"
+    input_type: "jsonl"
+    inputs:
+      - "path/to/metadata_withqa.metadata.jsonl"
+
+pipelines:
+  to_metadata: false
+  # QA already exists, so skip generation:
+  ensure_qa: false
+  export_training: true
+  # Optional here (kept for consistency; not used if ensure_qa=false)
+  qa_task_name: "spatial_relation_2d"
+
