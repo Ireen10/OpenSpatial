@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-**adapter→enrich→写出** 链路已跑通；在此基础上 **sample 级 `MetadataV0` → 2D 空间关系 QA 的 annotation task（首轮）** 已落地（`relation_id`、三类问法、双框抑制、artifact 脚本与聚焦单测）。下一步按新计划推进（例如 parquet 产线、补 `metadata_spec_v0` 中 `relation_id`、CI / `test_enrich_relation2d` gate 等）。
+已打通 **metadata(noQA)→metadata(withQA)→training bundle** 的 dataset-level pipeline（支持 `training_output_root`、全局 QA 配置 `qa_tasks.yaml`、jsonl 文件粒度并行与 resume）；下一步完善 **viz**：同样依赖配置文件，并兼容展示带 QA 的 metadata 与 training bundle。
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-17** | **训练导出 pipeline（并行/断点续跑，最小 E2E）**：CLI 支持 `pipelines` 串联 `to_metadata/ensure_qa/export_training`；新增 `training_output_root`、global `qa_config` + `--qa-config`；训练 bundle 产出 `images/*.tar` + `*_tarinfo.json` + `jsonl/*.jsonl`，并支持 tar member 冲突去重 `__r{input_index}`；含测试配置与 E2E UT。收束见 `metadata/plans/2026-04-17_1059_training_export_parallel_io/change_log.md`。 |
 | **2026-04-17** | **2D 空间关系 annotation（首轮）**：`RelationV0.relation_id`（解析自动补齐）+ `enrich_relations_2d` 统一 id；新 task `task/annotation/spatial_relation_2d.py`、demo 配置、`relation_2d_prompt_templates`；同指代短槽位、双框 tier 排序 + `dual_box_keep_prob`、artifact 生成脚本与聚焦 UT。收束见 `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/change_log.md`。 |
 | **2026-04-16** | **断点续传体验优化**：checkpoint 目录改为按 `output_root/{dataset}/{split}/.checkpoints` 隔离，支持只重跑某个 dataset/split；兼容读取旧的 `output_root/.checkpoints`（只读 fallback）；新增 UT 覆盖并通过。 |
 | **2026-04-16** | **CLI 可用性/可观测性**：`inputs` 支持绝对路径 glob（修复 `Path.glob` 对非相对 pattern 的限制）；进度展示默认使用 `tqdm`（多 worker 多进度条，每个 worker/文件一个 bar），若环境无 tqdm 自动回退到 log；仍保留 stderr 日志用于关键事件。 |
@@ -31,6 +32,9 @@
 
 ## 下一步 TODO（按建议优先级，随实现勾选）
 
+- [ ] **viz（配置化 + 兼容 QA/training）**：`openspatial-metadata-viz` 读取 global/dataset/qa_config，并在 UI 中同时支持：
+  - 展示 `metadata_qa/`（`qa_items`、标框渲染/切换）
+  - 展示 training bundle（`jsonl/part_*.jsonl` + `images/part_*.tar` + `*_tarinfo.json`）
 - [ ] **metadata_spec_v0**：在 `metadata/docs/metadata_spec_v0_zh.md` 补一节 `RelationV0.relation_id`（格式、自动生成、与 QA `meta` 追溯对齐）；与首轮 annotation 交付对齐。  
 - [ ] **CI**：在 Linux 上跑 `pytest metadata/tests`（若仓库尚无 workflow，可在 OpenSpatial 根或子项目加一条）。  
 - [ ] **规模化接入真实数据**：为每个真实数据集补齐 `datasets/<name>/dataset.yaml`（含 inputs/glob、output_root、meta、enrich 开关），并补“样例+解析约束”的 plans。  
@@ -44,6 +48,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-17_1059_training_export_parallel_io/` | **已交付（实现 + 自测 + 收束）**：dataset-level pipeline（ensure_qa + training export）、并行与 resume；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/` | **已交付（首轮实现 + 收束）**：2D 空间关系 annotation task + `relation_id`；见该目录 `change_log.md`、`plan.md` 收束节 |
 | `metadata/plans/2026-04-15_2152_checkpoint_scoped/` | **已交付**：checkpoint 按 dataset/split 隔离 + 旧位置兼容读取；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-15_1658_metadata_next/` | **已交付（首轮库+测）**：2D enrich；细节见该目录 `change_log.md` |

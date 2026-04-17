@@ -1,0 +1,7 @@
+output_root: "metadata_out"
+batch_size: 1
+num_workers: 0
+resume: true
+strict: true
+qa_config: "metadata/tests/configs/e2e_training_pipeline/qa_tasks.yaml"
+

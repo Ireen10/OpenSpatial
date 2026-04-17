@@ -22,6 +22,39 @@
    - training bundle 使用 **另一个根**，并且 **放在 dataset.yaml 中**作为显式字段（新增字段，便于 per-dataset 管理）。
 3. **QA 生成不依赖 OpenSpatial pipeline**：尽量直接使用 annotation task 逻辑（不走 `run.py` / `BasePipeline`），并把必要能力收束到 `metadata` 子项目内管理。
 
+### QA 生成配置的集中管理（与你对齐的选择）
+
+你已确认：**最小 QA 生成配置应集中在一个地方**，不与 dataset 绑定（避免多 dataset 重复配置、改动困难）。
+
+因此本轮采用：
+
+- **全局 QA 配置文件**（建议放在 `metadata/configs/qa_tasks.yaml`，或通过 CLI `--qa-config` 指定）
+- `dataset.yaml` 只引用 **`qa_task_name`**（以及可选 `qa_task_version` / `qa_task_overrides`），不再内联大段 task 参数
+
+示意：
+
+```yaml
+# dataset.yaml (per dataset)
+pipelines:
+  - name: ensure_qa
+    enable: true
+    qa_task_name: spatial_relation_2d
+    qa_task_overrides:
+      random_seed: 7
+```
+
+```yaml
+# qa_tasks.yaml (global, shared)
+tasks:
+  spatial_relation_2d:
+    image_root_mode: dataset_viz_image_root   # or explicit path policy
+    unique_text_only_prob: 0.82
+    dual_box_keep_prob: 0.1
+    sub_tasks: { single_axis: 2, full_sentence: 2, judgment: 2 }
+```
+
+实现时 runner 将：读取全局 QA 配置 → 取 `qa_task_name` 对应的默认参数 → 合并 `qa_task_overrides` → 执行 metadata 内置的 QA 生成逻辑。
+
 ### dataset.yaml 需要新增的字段（建议）
 
 - `training_output_root: str?`  

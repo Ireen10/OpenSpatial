@@ -107,6 +107,50 @@ def export_metadata_to_training_bundle(
     return {"tar": tar_path, "tarinfo": images_dir / f"part_{part_id:06d}_tarinfo.json", "jsonl": jsonl_path}
 
 
+def build_training_members_and_rows(
+    md: MetadataV0, *, image_root: Union[str, Path]
+) -> Tuple[List[Tuple[str, bytes]], List[Dict[str, Any]]]:
+    """
+    Pure-ish helper: for one metadata record with qa_items, render group images and build training rows.
+    Does NOT write files.
+    """
+    if not md.qa_items:
+        raise ValueError("metadata.qa_items is empty; populate QA before export")
+    img_path = _resolve_image_path(md, image_root)
+    if not img_path.is_file():
+        raise FileNotFoundError(f"image not found: {img_path}")
+
+    with Image.open(img_path) as im_f:
+        pil = im_f.convert("RGB").copy()
+    width, height = pil.size
+    obj_map = _objects_by_id(md)
+
+    groups = group_qa_items(md.qa_items)
+    members: List[Tuple[str, bytes]] = []
+    rows: List[Dict[str, Any]] = []
+
+    base_rel = md.sample.image.path
+    if not isinstance(base_rel, str) or not base_rel.strip():
+        raise ValueError("metadata.sample.image.path must be a non-empty string")
+
+    for group in groups:
+        meta0 = dict(group[0].meta or {})
+        jpeg = render_group_image_jpeg(pil, meta0, obj_map)
+        vk = visual_group_key(meta0)
+        rel = training_image_relpath(base_image_rel=base_rel, meta0=meta0, visual_key=vk)
+        members.append((rel, jpeg))
+        rows.append(
+            build_training_line(
+                group,
+                relative_path=rel,
+                image_width=width,
+                image_height=height,
+                record_id="",
+            )
+        )
+    return members, rows
+
+
 def _metadata_from_payload(payload: Dict[str, Any]) -> MetadataV0:
     if hasattr(MetadataV0, "model_validate"):
         return MetadataV0.model_validate(payload)

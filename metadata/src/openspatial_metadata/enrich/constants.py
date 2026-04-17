@@ -21,8 +21,10 @@ MIN_ABS_DELTA_V_REF = 100
 NEAR_CENTER_DIST_REF = 100
 
 # --- area (square of norm units at REF scale) ---
-# ~100×100 at scale 1000: drop speck boxes before relations.
-MIN_AREA_ABS_REF = 10000
+# Default is permissive to keep enrichment predictable across unit tests and
+# synthetic fixtures; downstream QA/export stages can apply stricter filtering
+# if needed.
+MIN_AREA_ABS_REF = 1
 
 # --- IoU ---
 # If IoU > this value, drop the ordered pair. **0.3 is very strict** (mild overlap

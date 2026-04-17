@@ -36,6 +36,7 @@
 | `num_workers` | int | `0` | 与 CLI `--num-workers` 合并得到**基础并行度**，再与展开后的输入文件数、硬顶 `32` 取最小值得到有效并行度 `effective`（见下文「并行与 `num_workers`」）。`effective <= 1` 时不创建线程池，整段 split 顺序执行。 |
 | `resume` | bool | `false` | 为 `true` 时启用 checkpoint **续跑**（与 CLI `--resume` 合并为「任一为真即续跑」）。 |
 | `strict` | bool | `true` | **遇错即停**（本轮仅支持 `true`）：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。CLI **不提供** `strict=False`。 |
+| `qa_config` | string, 可选 | `null` | 全局 QA 任务注册表 YAML 路径（例如 `metadata/configs/qa_tasks.yaml`）。可被 CLI `--qa-config` 覆盖。仅在启用 dataset `pipelines.ensure_qa` / `pipelines.export_training` 路径时需要。 |
 
 允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。
 
@@ -69,6 +70,29 @@
 |--------|------|------|
 | `mode` | string | v0 仅支持 **`flat`**：图像在磁盘上为扁平树，`Path(image_root) / sample.image.path` 可读。 |
 | `image_root` | string，可选 | 解压 tar 后的图像根目录（与数据文档中 tar 内相对路径一致）。**若为相对路径**，则相对于**该数据集 `dataset.yaml` 所在目录**解析（便于写 `../../../tests/fixtures/...` 一类仓库内路径）。未设置时，浏览器无法通过 `/api/image` 加载像素，仅可看 JSON。 |
+
+### `training_output_root`（可选）
+
+- **类型**：string
+- **说明**：训练数据 bundle（`images/*.tar` + `*_tarinfo.json` + `jsonl/*.jsonl`）的输出根目录。若省略则回退到 `{dataset.output_root or global.output_root}`。
+
+### `pipelines`（可选，推荐用于端到端）
+
+- **类型**：映射（当前实现接受 dict；模型允许 extra 字段）
+- **说明**：当配置 `pipelines.ensure_qa=true` 或 `pipelines.export_training=true` 时，CLI 对 `jsonl` 输入会走“单条记录不中断”的串联执行路径（同一 worker 内）：
+  - `to_metadata`：可选。对非 metadata 输入做 adapter/meta/enrich 后写出 `metadata_noqa/`
+  - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`
+  - `export_training`：可选。将带 `qa_items` 的 metadata 导出为训练 bundle（`images/` + `jsonl/`）
+
+支持字段（最小集）：
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `to_metadata` | bool | `true` | 为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich），但仍会写出 `metadata_noqa/`。 |
+| `ensure_qa` | bool | `false` | 生成 `qa_items`（需要 `--qa-config` 或 `global.qa_config`）。 |
+| `export_training` | bool | `false` | 输出训练 bundle（需要 `ensure_qa` 先产出 QA，或输入本身已带 `qa_items`）。 |
+| `qa_task_name` | string | `spatial_relation_2d` | 使用的 QA 任务名（在 `qa_tasks.yaml` 中注册）。 |
+| `qa_task_overrides` | mapping | `null` | 覆盖全局 QA 任务 params 的少量字段。 |
 
 ### `adapter`（可选）
 

@@ -1,0 +1,14 @@
+tasks:
+  spatial_relation_2d:
+    enabled: true
+    type: "spatial_relation_2d"
+    params:
+      # Keep it small/deterministic for tests.
+      random_seed: 123
+      # Generate 3 QA styles with separate counts (your “三类 QA 数量”).
+      # Total QAs per sample = sum(sub_tasks.*).
+      sub_tasks:
+        single_axis: 2
+        full_sentence: 2
+        judgment: 2
+

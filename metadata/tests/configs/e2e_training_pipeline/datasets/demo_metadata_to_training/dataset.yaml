@@ -1,0 +1,16 @@
+name: "demo_metadata_to_training"
+output_root: "metadata/tests/.tmp_pipeline_out/metadata"
+training_output_root: "metadata/tests/.tmp_pipeline_out/training"
+viz:
+  image_root: "metadata/tests/fixtures/images"
+splits:
+  - name: "train_small"
+    input_type: "jsonl"
+    inputs:
+      - "metadata/tests/fixtures/generated/spatial_relation_2d/dense_from_fixture.metadata.jsonl"
+pipelines:
+  to_metadata: false
+  ensure_qa: true
+  export_training: true
+  qa_task_name: "spatial_relation_2d"
+

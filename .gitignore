@@ -24,6 +24,9 @@ metadata/src/**/*.egg-info/
 metadata/tests/.tmp_out/
 metadata/tests/.tmp_demo_out/
 metadata/tests/.tmp_refcoco_out/
+metadata/tests/.tmp_pipeline_out/
+metadata/tests/.tmp_training_out/
+metadata/metadata/
 metadata/tests/fixtures/generated/spatial_relation_2d/*.metadata.jsonl
 metadata/tests/fixtures/generated/spatial_relation_2d/*.qa.jsonl
 metadata/tests/fixtures/generated/spatial_relation_2d/*.qa_preview.md

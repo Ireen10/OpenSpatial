@@ -16,6 +16,7 @@ from .config.loader import (
     load_global_config,
     resolve_adapter,
 )
+from .config.qa_tasks import build_qa_items, load_qa_tasks_config, resolve_qa_task_params
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
 
@@ -271,6 +272,133 @@ def _process_jsonl_file(
         bar.close()
 
 
+def _split_subdir(out_dir: Path, sub: str) -> Path:
+    p = out_dir / sub
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _training_output_root(args_output_root: Optional[str], ds: Any, g: Any) -> Path:
+    # training_output_root is dataset-specific; fall back to metadata output root tree if absent
+    tor = getattr(ds, "training_output_root", None)
+    if isinstance(args_output_root, str) and args_output_root:
+        # CLI --output-root overrides metadata output root only; training root uses dataset.training_output_root when set
+        pass
+    if isinstance(tor, str) and tor:
+        return Path(tor)
+    return Path(args_output_root or getattr(ds, "output_root", None) or g.output_root)
+
+
+def _resolve_image_root(ds: Any, dataset_path: str) -> str:
+    viz = getattr(ds, "viz", None)
+    ir = getattr(viz, "image_root", None) if viz is not None else None
+    if isinstance(ir, str) and ir:
+        return ir
+    return str(Path(dataset_path).parent)
+
+
+def _process_jsonl_file_training_pipeline(
+    input_path: Path,
+    *,
+    part_id: int,
+    resume: bool,
+    output_root: Path,
+    training_root: Path,
+    checkpoint_root: Path,
+    adapter_factory: Callable[[], Optional[object]],
+    relations_2d: bool,
+    ds: Any,
+    split_name: str,
+    dataset_path: str,
+    qa_registry: Dict[str, Any],
+    qa_task_name: str,
+    qa_task_overrides: Optional[Dict[str, Any]],
+    enable_to_metadata: bool,
+    enable_ensure_qa: bool,
+    enable_export: bool,
+) -> None:
+    """
+    One input jsonl file -> one part bundle (tar+tarinfo+jsonl), with optional metadata outputs.
+    """
+    from .export.run import build_training_members_and_rows
+    from .export.paths import disambiguate_relpath
+    from .export.stream import TrainingBundleWriter, bundle_paths
+
+    ckpt_path = _checkpoint_path(checkpoint_root, str(input_path))
+    old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(input_path))
+    ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
+    next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
+
+    # Metadata outputs (shared root): {output_root}/{ds}/{split}/{metadata_noqa|metadata_qa}/{ip.stem}.metadata.jsonl
+    split_out = output_root / ds.name / split_name
+    noq_dir = _split_subdir(split_out, "metadata_noqa")
+    qa_dir = _split_subdir(split_out, "metadata_qa")
+    stem = input_path.stem
+    if stem.endswith(".metadata"):
+        stem = stem[: -len(".metadata")]
+    noq_path = noq_dir / f"{stem}.metadata.jsonl"
+    qa_path = qa_dir / f"{stem}.metadata.jsonl"
+
+    adapter = adapter_factory()
+    qa_params = resolve_qa_task_params(qa_registry, qa_task_name=qa_task_name, overrides=qa_task_overrides)
+
+    bundle_out_dir = training_root / ds.name / split_name
+    paths = bundle_paths(bundle_out_dir, part_id)
+    bundle_out_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_root.mkdir(parents=True, exist_ok=True)
+
+    with JsonlWriter(noq_path, append=resume and noq_path.exists()) as w_noq, JsonlWriter(
+        qa_path, append=resume and qa_path.exists()
+    ) as w_qa, TrainingBundleWriter(paths, resume=resume) as bw:
+        image_root = _resolve_image_root(ds, dataset_path)
+        for record, ref in iter_jsonl(input_path):
+            if ref.input_index < next_idx:
+                continue
+
+            # Step 1: to_metadata (adapter + dataset meta + enrich)
+            if enable_to_metadata:
+                out = _apply_adapter(adapter, record)
+                out.setdefault("aux", {})
+                out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+                out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+            else:
+                out = dict(record)
+
+            md_noqa = MetadataV0.parse_obj(out)
+
+            # Always persist the "noqa" view when pipeline is enabled, even if
+            # the input is already metadata (to_metadata=false).
+            w_noq.write_records([md_noqa.dict()])
+
+            # Step 2: ensure_qa (metadata-native QA generator)
+            md_qa = md_noqa
+            if enable_ensure_qa and not md_noqa.qa_items:
+                items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                payload = md_noqa.dict()
+                payload["qa_items"] = [it.dict() for it in items]
+                md_qa = MetadataV0.parse_obj(payload)
+
+            # Always persist the "qa" view for inspection/refresh.
+            w_qa.write_records([md_qa.dict()])
+
+            # Step 3: export training bundle
+            if enable_export:
+                members, rows = build_training_members_and_rows(md_qa, image_root=image_root)
+                for (rel, data), row in zip(members, rows):
+                    rel2 = disambiguate_relpath(rel, input_index=ref.input_index, existing=bw.existing_names)
+                    bw.add_image(rel2, data)
+                    row["data"][0]["content"][0]["image"]["relative_path"] = rel2
+                    bw.add_jsonl_row(row)
+
+            next_idx = ref.input_index + 1
+            _write_checkpoint_atomic(ckpt_path, {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0})
+
+        # finalize tarinfo once per file
+        if enable_export:
+            bw.finalize_tarinfo()
+
+
 def _process_jsonl_files_parallel(
     files: List[Path],
     out_dir: Path,
@@ -500,10 +628,91 @@ def _process_json_files_parallel(
         ex.shutdown(wait=True, cancel_futures=False)
 
 
+def _pipeline_flags(ds: Any) -> Optional[Dict[str, Any]]:
+    """
+    Dataset-level pipeline config. Kept flexible (extra=allow), so we accept:
+    - None / missing -> no pipeline, default metadata-only behavior
+    - dict with keys {to_metadata, ensure_qa, export_training, qa_task_name, qa_task_overrides}
+    """
+    p = getattr(ds, "pipelines", None)
+    if p is None:
+        return None
+    if isinstance(p, dict):
+        return p
+    if isinstance(p, list) and p:
+        # If multiple pipelines are provided, pick the first for now.
+        v0 = p[0]
+        return v0 if isinstance(v0, dict) else None
+    return None
+
+
+def _process_jsonl_files_training_parallel(
+    files: List[Path],
+    *,
+    effective: int,
+    resume: bool,
+    output_root: Path,
+    training_root: Path,
+    checkpoint_root: Path,
+    adapter_factory: Callable[[], Optional[object]],
+    relations_2d: bool,
+    ds: Any,
+    split_name: str,
+    dataset_path: str,
+    qa_registry: Dict[str, Any],
+    qa_task_name: str,
+    qa_task_overrides: Optional[Dict[str, Any]],
+    enable_to_metadata: bool,
+    enable_ensure_qa: bool,
+    enable_export: bool,
+) -> None:
+    ex = ThreadPoolExecutor(max_workers=effective)
+    futures: Dict[Any, Tuple[Path, int]] = {}
+    try:
+        for part_id, ip in enumerate(files):
+            futures[
+                ex.submit(
+                    _process_jsonl_file_training_pipeline,
+                    ip,
+                    part_id=part_id,
+                    resume=resume,
+                    output_root=output_root,
+                    training_root=training_root,
+                    checkpoint_root=checkpoint_root,
+                    adapter_factory=adapter_factory,
+                    relations_2d=relations_2d,
+                    ds=ds,
+                    split_name=split_name,
+                    dataset_path=dataset_path,
+                    qa_registry=qa_registry,
+                    qa_task_name=qa_task_name,
+                    qa_task_overrides=qa_task_overrides,
+                    enable_to_metadata=enable_to_metadata,
+                    enable_ensure_qa=enable_ensure_qa,
+                    enable_export=enable_export,
+                )
+            ] = (ip, part_id)
+        for fut in as_completed(futures):
+            (ip, part_id) = futures[fut]
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[openspatial-metadata] pipeline worker failed: {ds.name}/{split_name} part={part_id} file={ip}\n{exc!r}", file=sys.stderr)
+                ex.shutdown(wait=True, cancel_futures=True)
+                sys.exit(1)
+    finally:
+        ex.shutdown(wait=True, cancel_futures=False)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="openspatial-metadata")
     p.add_argument("--config-root", required=True, help="Path to dataset config folder or a single yaml file.")
     p.add_argument("--global-config", default=None, help="Optional global.yaml with defaults.")
+    p.add_argument(
+        "--qa-config",
+        default=None,
+        help="Optional qa_tasks.yaml (overrides global.yaml.qa_config).",
+    )
     p.add_argument("--output-root", default=None, help="Override output root (otherwise from global config).")
     p.add_argument("--resume", action="store_true", help="Resume from checkpoints.")
     p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel); 0 = use global.yaml num_workers.")
@@ -526,6 +735,14 @@ def main(argv=None) -> None:
             _log("tqdm not available; falling back to log progress")
     g = load_global_config(args.global_config)
     cli_workers = args.num_workers
+    qa_config_path = args.qa_config or getattr(g, "qa_config", None)
+    qa_registry: Dict[str, Any] = {}
+    if qa_config_path:
+        try:
+            qa_registry = load_qa_tasks_config(qa_config_path)
+            _log(f"loaded qa_tasks from {qa_config_path}")
+        except Exception as exc:
+            raise ValueError(f"Failed to load qa_tasks config: {qa_config_path}") from exc
 
     cfg_paths = discover_dataset_configs(args.config_root)
     _log(f"discovered {len(cfg_paths)} dataset config(s) under {args.config_root}")
@@ -550,37 +767,77 @@ def main(argv=None) -> None:
             out_dir.mkdir(parents=True, exist_ok=True)
             checkpoint_root = out_dir / ".checkpoints"
             eff = effective_parallel_workers(cli_workers, g.num_workers, len(files))
+            resume = args.resume or g.resume
+            pipe = _pipeline_flags(ds)
             _log(
                 f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} "
                 f"batch_size={g.batch_size} enrich2d={rel2d} out={out_dir}"
             )
 
             if split.input_type == "jsonl":
-                if eff > 1:
-                    _process_jsonl_files_parallel(
-                        files,
-                        out_dir,
-                        effective=eff,
-                        batch_size=g.batch_size,
-                        resume=args.resume or g.resume,
-                        strict=g.strict,
-                        output_root=output_root,
-                        checkpoint_root=checkpoint_root,
-                        adapter_factory=adapter_factory,
-                        relations_2d=rel2d,
-                        ds=ds,
-                        split_name=split.name,
-                        dataset_path=cfg_path,
+                if pipe and bool(pipe.get("ensure_qa", False) or pipe.get("export_training", False)):
+                    qa_task_name = str(pipe.get("qa_task_name") or "spatial_relation_2d")
+                    qa_task_overrides = pipe.get("qa_task_overrides") if isinstance(pipe.get("qa_task_overrides"), dict) else None
+                    enable_to_metadata = bool(pipe.get("to_metadata", True))
+                    enable_ensure_qa = bool(pipe.get("ensure_qa", True))
+                    enable_export = bool(pipe.get("export_training", True))
+                    training_root = _training_output_root(args.output_root, ds, g)
+                    _log(
+                        f"pipeline {ds.name}/{split.name}: to_metadata={enable_to_metadata} "
+                        f"ensure_qa={enable_ensure_qa} export_training={enable_export} qa_task={qa_task_name} "
+                        f"train_out={training_root}"
                     )
+                    if eff > 1:
+                        _process_jsonl_files_training_parallel(
+                            files,
+                            effective=eff,
+                            resume=resume,
+                            output_root=output_root,
+                            training_root=training_root,
+                            checkpoint_root=checkpoint_root,
+                            adapter_factory=adapter_factory,
+                            relations_2d=rel2d,
+                            ds=ds,
+                            split_name=split.name,
+                            dataset_path=cfg_path,
+                            qa_registry=qa_registry,
+                            qa_task_name=qa_task_name,
+                            qa_task_overrides=qa_task_overrides,
+                            enable_to_metadata=enable_to_metadata,
+                            enable_ensure_qa=enable_ensure_qa,
+                            enable_export=enable_export,
+                        )
+                    else:
+                        for part_id, ip in enumerate(files):
+                            _log(f"{ds.name}/{split.name}: processing part={part_id} {ip}")
+                            _process_jsonl_file_training_pipeline(
+                                ip,
+                                part_id=part_id,
+                                resume=resume,
+                                output_root=output_root,
+                                training_root=training_root,
+                                checkpoint_root=checkpoint_root,
+                                adapter_factory=adapter_factory,
+                                relations_2d=rel2d,
+                                ds=ds,
+                                split_name=split.name,
+                                dataset_path=cfg_path,
+                                qa_registry=qa_registry,
+                                qa_task_name=qa_task_name,
+                                qa_task_overrides=qa_task_overrides,
+                                enable_to_metadata=enable_to_metadata,
+                                enable_ensure_qa=enable_ensure_qa,
+                                enable_export=enable_export,
+                            )
+                            _log(f"{ds.name}/{split.name}: done {ip.name}")
                 else:
-                    for ip in files:
-                        op = out_dir / (ip.stem + ".metadata.jsonl")
-                        _log(f"{ds.name}/{split.name}: processing {ip}")
-                        _process_jsonl_file(
-                            ip,
-                            op,
+                    if eff > 1:
+                        _process_jsonl_files_parallel(
+                            files,
+                            out_dir,
+                            effective=eff,
                             batch_size=g.batch_size,
-                            resume=args.resume or g.resume,
+                            resume=resume,
                             strict=g.strict,
                             output_root=output_root,
                             checkpoint_root=checkpoint_root,
@@ -590,7 +847,25 @@ def main(argv=None) -> None:
                             split_name=split.name,
                             dataset_path=cfg_path,
                         )
-                        _log(f"{ds.name}/{split.name}: done {ip.name}")
+                    else:
+                        for ip in files:
+                            op = out_dir / (ip.stem + ".metadata.jsonl")
+                            _log(f"{ds.name}/{split.name}: processing {ip}")
+                            _process_jsonl_file(
+                                ip,
+                                op,
+                                batch_size=g.batch_size,
+                                resume=resume,
+                                strict=g.strict,
+                                output_root=output_root,
+                                checkpoint_root=checkpoint_root,
+                                adapter_factory=adapter_factory,
+                                relations_2d=rel2d,
+                                ds=ds,
+                                split_name=split.name,
+                                dataset_path=cfg_path,
+                            )
+                            _log(f"{ds.name}/{split.name}: done {ip.name}")
             elif split.input_type == "json_files":
                 if eff > 1:
                     _process_json_files_parallel(
@@ -598,7 +873,7 @@ def main(argv=None) -> None:
                         out_dir,
                         effective=eff,
                         batch_size=g.batch_size,
-                        resume=args.resume or g.resume,
+                        resume=resume,
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
                         adapter_factory=adapter_factory,
@@ -612,7 +887,7 @@ def main(argv=None) -> None:
                         files,
                         out_dir,
                         batch_size=g.batch_size,
-                        resume=args.resume or g.resume,
+                        resume=resume,
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
                         adapter_factory=adapter_factory,

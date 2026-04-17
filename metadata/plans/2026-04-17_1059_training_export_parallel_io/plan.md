@@ -29,6 +29,8 @@
 - **目标**：保持“每 dataset 一个 `dataset.yaml` + `--config-root` 扫描”的体验，同时在 dataset 级别配置训练导出输出根。
 - **工作项**：
   - 在 `metadata/src/openspatial_metadata/config/schema.py::DatasetConfig` 增加显式字段 `training_output_root: Optional[str]`（保留 extra allow）。
+  - 增加**全局 QA 配置**加载入口（建议：`--qa-config <path>`，默认 `metadata/configs/qa_tasks.yaml`）。
+  - 定义 `dataset.yaml` 对 QA 的引用字段：`pipelines.ensure_qa.qa_task_name` + 可选 `qa_task_overrides`（仅覆盖少量参数）。
   - 在文档与样例 dataset.yaml 中示例该字段。
   - 定义 fallback 规则：若 dataset 未配置 `training_output_root`，则使用 `{dataset.output_root or global.output_root}/{dataset.name}/{split}/training`（具体路径在实现中固定，避免覆盖）。
 - **完成条件**：`dataset.yaml` 写法与现状兼容（inputs 仍可 glob/range），且可以 per-dataset 指定训练输出根。
@@ -54,6 +56,7 @@
   - 每条 record 的处理在同一 worker 内串联执行，不依赖“阶段间全量落盘再读回”。
   - E2E-B/C 通过跳过前置步骤实现（避免重复实现）。
   - 从 metadata 起步（E2E-B/C）采用“写法一”：metadata 也作为一个 dataset 配置（`adapter: passthrough`，`input_type: jsonl`，inputs 指向 `*.metadata.jsonl`），并通过 pipeline 开关跳过 `to_metadata`。
+  - QA 生成参数来源：优先使用全局 QA 配置（`--qa-config`），dataset 仅引用 `qa_task_name` 并可用 `qa_task_overrides` 做少量覆盖。
 - **完成条件**：E2E-A/B/C 均可被同一 runner 配置跑通。
 
 ### 任务 3：I/O 对齐——part 映射与目录结构

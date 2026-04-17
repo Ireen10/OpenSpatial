@@ -46,6 +46,7 @@ class DatasetConfig(BaseModel):
     adapter: Optional[AdapterSpec] = None
     splits: List[SplitSpec]
     output_root: Optional[str] = None
+    training_output_root: Optional[str] = None
     viz: Optional[VizSpec] = None
 
 
@@ -59,4 +60,5 @@ class GlobalConfig(BaseModel):
     num_workers: int = 0
     resume: bool = False
     strict: bool = True
+    qa_config: Optional[str] = None
 

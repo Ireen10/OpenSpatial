@@ -1,0 +1,32 @@
+version: 1
+
+# Global QA task registry (shared across datasets).
+#
+# Datasets reference a task by name (qa_task_name) and may provide small overrides.
+# This file is intentionally extensible to future 3D tasks; only 2D is implemented initially.
+
+tasks:
+  spatial_relation_2d:
+    type: image_2d_relation
+    params:
+      random_seed: 7
+      unique_text_only_prob: 0.82
+      dual_box_keep_prob: 0.1
+      prioritize_low_mark_relations: true
+      partial_correct_ratio_threshold: 0.75
+      axis_close_ratio_threshold: 0.2
+      shortage_randomness: 0.15
+      judgment_distribution:
+        incorrect: 0.5
+        partial: 0.15
+        correct: 0.35
+      sub_tasks:
+        single_axis: 2
+        full_sentence: 2
+        judgment: 2
+
+  spatial_relation_3d:
+    type: scene_3d_relation
+    enabled: false
+    params: {}
+

@@ -45,3 +45,32 @@ def training_image_relpath(
     if parent in ("", "."):
         return name
     return f"{parent}/{name}"
+
+
+def disambiguate_relpath(rel: str, *, input_index: int, existing: set[str]) -> str:
+    """
+    Ensure relpath is unique within a part by adding a stable suffix when needed.
+
+    Rule (per design):
+    - keep directory structure
+    - add ``__r{input_index}`` before extension
+    """
+    if rel not in existing:
+        return rel
+    p = Path(rel)
+    parent = p.parent.as_posix()
+    stem = p.stem
+    ext = p.suffix or ""
+    name = f"{stem}__r{int(input_index)}{ext}"
+    if parent in ("", "."):
+        cand = name
+    else:
+        cand = f"{parent}/{name}"
+    # If still collides (pathologically), add a numeric bump.
+    bump = 1
+    out = cand
+    while out in existing:
+        name2 = f"{stem}__r{int(input_index)}_{bump}{ext}"
+        out = name2 if parent in ("", ".") else f"{parent}/{name2}"
+        bump += 1
+    return out
