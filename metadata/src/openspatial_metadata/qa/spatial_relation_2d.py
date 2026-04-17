@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
+from openspatial_metadata.prompt_templates import spatial_relation_2d as tpl
 
 
 FULL_SENTENCE = "full_sentence"
@@ -22,22 +23,6 @@ JUDGMENT = "judgment"
 
 STYLE_PRIORITY = [SINGLE_AXIS, FULL_SENTENCE, JUDGMENT]
 DROP_WEIGHTS = {SINGLE_AXIS: 1.0, FULL_SENTENCE: 2.0, JUDGMENT: 4.0}
-
-FULL_SENTENCE_QUESTION_TEMPLATES = [
-    "Determine the 2D spatial relation between {target} and {anchor} in the image plane.",
-    "Based on their locations in the image plane, describe where {target} is with respect to {anchor}.",
-    "Look only at the 2D image plane and state the relative position of {target} with respect to {anchor}.",
-]
-SINGLE_AXIS_QUESTION_TEMPLATES = [
-    "Consider the positions of {target} and {anchor} in the image plane. Where is {target} with respect to {anchor} along the {axis_name} axis? Select one option.\nOptions: A. {option_a} B. {option_b}",
-    "Focus on the image-plane relation between {target} and {anchor}. Along the {axis_name} axis, choose the correct location of {target} relative to {anchor}.\nOptions: A. {option_a} B. {option_b}",
-    "In the image plane, compare {target} with {anchor} only along the {axis_name} axis. Pick the correct answer.\nOptions: A. {option_a} B. {option_b}",
-]
-JUDGMENT_QUESTION_TEMPLATES = [
-    "Consider the image-plane relation between {target} and {anchor}. Is the following statement correct: {statement}? If it is correct, answer \"Correct.\" If it is partially correct, answer \"Partially correct,\" followed by a more precise relation. If it is incorrect, answer \"Incorrect,\" followed by the correct relation.",
-    "Look only at the 2D image plane. Judge whether this statement is correct: {statement}. Respond with \"Correct.\", or \"Partially correct,\" plus a more accurate description, or \"Incorrect,\" plus the correct description.",
-    "Based on the image-plane positions of {target} and {anchor}, evaluate this statement: {statement}. Follow this format: \"Correct.\", or \"Partially correct,\" with a refinement, or \"Incorrect,\" with the right relation.",
-]
 
 ATOMIC_TO_AXIS = {"left": "horizontal", "right": "horizontal", "above": "vertical", "below": "vertical"}
 DIR_PHRASE = {
@@ -336,13 +321,13 @@ def _materialize_refs(rng: random.Random, anchor: dict, target: dict, roles_to_m
     if same_phrase and role_to_color.get("anchor") and role_to_color.get("target"):
         ca = role_to_color["anchor"]
         ct = role_to_color["target"]
-        anchor_name = f"the object in the {ca} box"
-        target_name = f"the object in the {ct} box"
+        anchor_name = tpl.render_marked_ref_same_phrase(color=ca)
+        target_name = tpl.render_marked_ref_same_phrase(color=ct)
     else:
         if "anchor" in role_to_color:
-            anchor_name = f"{anchor_name} (the object in the {role_to_color['anchor']} box in the image)"
+            anchor_name = tpl.render_marked_ref_with_hint(name=anchor_name, color=role_to_color["anchor"])
         if "target" in role_to_color:
-            target_name = f"{target_name} (the object in the {role_to_color['target']} box in the image)"
+            target_name = tpl.render_marked_ref_with_hint(name=target_name, color=role_to_color["target"])
 
     return anchor_name, target_name, {
         "marked_roles": list(role_to_color.keys()),
@@ -365,9 +350,10 @@ def _direction_phrase(rel: dict) -> str:
 
 def _build_full_sentence(rng: random.Random, anchor_text: str, target_text: str, rel: dict) -> Tuple[str, str]:
     direction = _direction_phrase(rel)
-    question = rng.choice(FULL_SENTENCE_QUESTION_TEMPLATES).format(target=target_text, anchor=anchor_text)
-    answer = f"In the image plane, {target_text} is {direction} {anchor_text}."
-    return question, answer
+    return (
+        tpl.render_full_sentence_question(rng, anchor=anchor_text, target=target_text),
+        tpl.render_full_sentence_answer(anchor=anchor_text, target=target_text, direction=direction),
+    )
 
 
 def _delta_uv(rel: dict) -> Tuple[Optional[float], Optional[float]]:
@@ -434,10 +420,15 @@ def _build_single_axis(
     if rng.random() < 0.5:
         option_a, option_b = option_b, option_a
     truth = truth_atom
-    answer = "A" if truth == option_a else "B"
-    question = rng.choice(SINGLE_AXIS_QUESTION_TEMPLATES).format(
-        target=target_text, anchor=anchor_text, axis_name=axis, option_a=option_a, option_b=option_b
+    question = tpl.render_single_axis_question(
+        rng,
+        anchor=anchor_text,
+        target=target_text,
+        axis_name=axis,
+        option_a=option_a,
+        option_b=option_b,
     )
+    answer = tpl.render_single_axis_answer(truth=truth, option_a=option_a, option_b=option_b)
     return question, answer, {"axis": axis}
 
 
@@ -462,16 +453,13 @@ def _build_judgment(
     true_direction = _direction_phrase(rel)
     if mode == "correct":
         statement_direction = true_direction
-        answer = "Correct."
     elif mode == "partial":
         _, atom = _choose_axis_for_relation(cfg, rng, rel)
         statement_direction = DIR_PHRASE.get((atom,), true_direction)
-        answer = f"Partially correct. In the image plane, {target_text} is {true_direction} {anchor_text}."
     else:
         statement_direction = DIR_OPPOSITE.get(true_direction, true_direction)
-        answer = f"Incorrect. In the image plane, {target_text} is {true_direction} {anchor_text}."
-
-    statement = f"{target_text} is {statement_direction} {anchor_text} in the image plane."
-    question = rng.choice(JUDGMENT_QUESTION_TEMPLATES).format(target=target_text, anchor=anchor_text, statement=statement)
+    statement = tpl.render_judgment_statement(anchor=anchor_text, target=target_text, statement_direction=statement_direction)
+    question = tpl.render_judgment_question(rng, anchor=anchor_text, target=target_text, statement=statement)
+    answer = tpl.render_judgment_answer(mode=mode, anchor=anchor_text, target=target_text, true_direction=true_direction)
     return question, answer, {"judgment_mode": mode, "statement_direction": statement_direction}
 
