@@ -53,8 +53,8 @@ def _fmt(s: str, **kwargs: str) -> str:
 
 # 1) Task description pools (shared across styles)
 TASK_DESCRIPTION_POOL = [
-    "You are given an image. Focus ONLY on the 2D image plane (pixel-space) positions when answering.",
-    "Answer based on the 2D image plane locations of the objects (ignore any 3D/real-world depth assumptions).",
+    "You are given an image. Answer using only what you can see about where the objects are in the picture.",
+    "Base your answer on the objects’ positions in the image. Do not rely on real-world assumptions (e.g., depth).",
 ]
 
 # 2) Question template pools (per style)
