@@ -84,32 +84,38 @@ JUDGMENT_QUESTION_POOL = [
 ]
 
 # 3) Instruction-following pools (per style)
-FULL_SENTENCE_INSTRUCTION_POOL = [
-    # Optional (element-level): use "" to mean "no explicit instruction".
-    "",
-    "Answer with one complete sentence.",
-    # Short mode: return ONLY a direction phrase (no full sentence).
-    # Examples: upper left / lower right / left / right / above / below.
-    "Answer with only a short direction phrase (e.g., upper left, left, above). Do not write a full sentence.",
-]
+# Instruction modes:
+# - Keys are stable identifiers used by rendering logic.
+# - Values are candidate pools for that mode.
+#
+# NOTE: If the selected mode is "none", we *randomly choose* an answer mode from the supported ones,
+# then sample an answer template from that answer-mode pool.
+FULL_SENTENCE_INSTRUCTIONS_BY_MODE: Dict[str, list[str]] = {
+    # No explicit instruction appended to the prompt.
+    "none": [""],
+    "one_sentence": ["Answer with one complete sentence."],
+    # Return only a direction phrase (no subject/object, no full sentence).
+    "short_phrase": [
+        "Answer with only a short direction phrase (e.g., upper left, left, above). Do not write a full sentence."
+    ],
+}
 
-SINGLE_AXIS_INSTRUCTION_POOL = [
-    "Respond with one letter.",
-]
+SINGLE_AXIS_INSTRUCTIONS_BY_MODE: Dict[str, list[str]] = {
+    "mcq_letter": ["Respond with one letter."],
+}
 
-JUDGMENT_INSTRUCTION_POOL = [
-    "If correct, answer \"Correct.\" If partially correct, answer \"Partially correct,\" then provide the more precise relation. If incorrect, answer \"Incorrect,\" then provide the correct relation.",
-]
+JUDGMENT_INSTRUCTIONS_BY_MODE: Dict[str, list[str]] = {
+    "with_explanation": [
+        "If correct, answer \"Correct.\" If partially correct, answer \"Partially correct,\" then provide the more precise relation. If incorrect, answer \"Incorrect,\" then provide the correct relation."
+    ]
+}
 
 # Answer template pools (per style)
-FULL_SENTENCE_ANSWER_POOL = [
-    "In the image plane, {target} is {direction} {anchor}.",
-]
-
-# Short-phrase answers: keep these as phrases (no subject/object).
-SHORT_PHRASE_ANSWER_POOL = [
-    "{direction}",
-]
+FULL_SENTENCE_ANSWERS_BY_MODE: Dict[str, list[str]] = {
+    "one_sentence": ["In the image plane, {target} is {direction} {anchor}."],
+    # Short-phrase answers: keep these as phrases (no subject/object).
+    "short_phrase": ["{direction}"],
+}
 
 # SINGLE_AXIS answers are constrained by instruction-following; keep as labels.
 JUDGMENT_ANSWER_CORRECT_POOL = ["Correct."]
@@ -132,46 +138,51 @@ MARKED_REF_WITH_HINT_POOL = [
 def render_full_sentence_question(rng: random.Random, *, anchor: str, target: str) -> str:
     task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
     q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
-    ins = rng.choice(FULL_SENTENCE_INSTRUCTION_POOL) if FULL_SENTENCE_INSTRUCTION_POOL else ""
+    # Backward-compat helper: this function renders only the prompt side.
+    mode = rng.choice(list(FULL_SENTENCE_INSTRUCTIONS_BY_MODE.keys()))
+    ins_pool = FULL_SENTENCE_INSTRUCTIONS_BY_MODE.get(mode) or [""]
+    ins = rng.choice(ins_pool)
     return _join_parts([task, q, ins])
 
 
 def render_full_sentence_answer(*, anchor: str, target: str, direction: str) -> str:
     # Keep answer variations fully within templates.
-    tpl = FULL_SENTENCE_ANSWER_POOL[0] if FULL_SENTENCE_ANSWER_POOL else "In the image plane, {target} is {direction} {anchor}."
+    tpl = (
+        FULL_SENTENCE_ANSWERS_BY_MODE.get("one_sentence") or ["In the image plane, {target} is {direction} {anchor}."]
+    )[0]
     return _fmt(tpl, anchor=anchor, target=target, direction=direction)
 
 
-def render_short_phrase_answer(*, direction: str) -> str:
-    tpl = SHORT_PHRASE_ANSWER_POOL[0] if SHORT_PHRASE_ANSWER_POOL else "{direction}"
-    return _fmt(tpl, direction=direction)
+def render_full_sentence_answer_by_mode(*, mode: str, anchor: str, target: str, direction: str) -> str:
+    pool = FULL_SENTENCE_ANSWERS_BY_MODE.get(mode) or FULL_SENTENCE_ANSWERS_BY_MODE["one_sentence"]
+    tpl = pool[0] if pool else "{direction}"
+    return _fmt(tpl, anchor=anchor, target=target, direction=direction)
 
 
 def render_full_sentence_qa_pair(rng: random.Random, *, anchor: str, target: str, direction: str) -> Tuple[str, str]:
     """
-    Render (question, answer) for full-sentence style, ensuring the answer mode matches the selected instruction.
+    Render (question, answer) with explicit instruction/answer mode coupling.
 
-    Requirement:
-    - if instruction is empty -> randomly choose an answer mode from the supported ones
-    - if instruction requests a short phrase -> answer is a direction phrase (no full sentence)
-    - otherwise -> answer is one complete sentence
+    Rules:
+    - Choose an instruction mode key first.
+    - If mode == "none": do not append instruction; choose an answer mode key randomly, then sample that pool.
+    - Else: answer mode key is the same as the instruction mode key (e.g., short_phrase -> short_phrase).
     """
     task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
     q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
-    ins = rng.choice(FULL_SENTENCE_INSTRUCTION_POOL) if FULL_SENTENCE_INSTRUCTION_POOL else ""
 
-    ins_norm = (ins or "").strip().lower()
-    if not ins_norm:
-        mode = rng.choice(["full_sentence", "short_phrase"])
-    elif "short direction phrase" in ins_norm:
-        mode = "short_phrase"
+    inst_mode = rng.choice(list(FULL_SENTENCE_INSTRUCTIONS_BY_MODE.keys()))
+    inst_pool = FULL_SENTENCE_INSTRUCTIONS_BY_MODE.get(inst_mode) or [""]
+    ins = rng.choice(inst_pool)
+
+    if inst_mode == "none":
+        ans_mode = rng.choice([k for k in FULL_SENTENCE_ANSWERS_BY_MODE.keys()])
     else:
-        mode = "full_sentence"
+        ans_mode = inst_mode
 
     question = _join_parts([task, q, ins])
-    if mode == "short_phrase":
-        return question, render_short_phrase_answer(direction=direction)
-    return question, render_full_sentence_answer(anchor=anchor, target=target, direction=direction)
+    answer = render_full_sentence_answer_by_mode(mode=ans_mode, anchor=anchor, target=target, direction=direction)
+    return question, answer
 
 
 def render_single_axis_question(
@@ -192,7 +203,9 @@ def render_single_axis_question(
         option_a=option_a,
         option_b=option_b,
     )
-    ins = rng.choice(SINGLE_AXIS_INSTRUCTION_POOL) if SINGLE_AXIS_INSTRUCTION_POOL else ""
+    mode = rng.choice(list(SINGLE_AXIS_INSTRUCTIONS_BY_MODE.keys()))
+    ins_pool = SINGLE_AXIS_INSTRUCTIONS_BY_MODE.get(mode) or [""]
+    ins = rng.choice(ins_pool)
     return _join_parts([task, q, ins])
 
 
@@ -208,7 +221,9 @@ def render_judgment_statement(*, anchor: str, target: str, statement_direction: 
 def render_judgment_question(rng: random.Random, *, anchor: str, target: str, statement: str) -> str:
     task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
     q = _fmt(rng.choice(JUDGMENT_QUESTION_POOL), anchor=anchor, target=target, statement=statement)
-    ins = rng.choice(JUDGMENT_INSTRUCTION_POOL) if JUDGMENT_INSTRUCTION_POOL else ""
+    mode = rng.choice(list(JUDGMENT_INSTRUCTIONS_BY_MODE.keys()))
+    ins_pool = JUDGMENT_INSTRUCTIONS_BY_MODE.get(mode) or [""]
+    ins = rng.choice(ins_pool)
     return _join_parts([task, q, ins])
 
 
