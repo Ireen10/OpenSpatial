@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-20** | **指代表达刷新（Qwen VL / OpenAI 兼容 API）**：`OpenAICompatibleChatClient`（`POST …/v1/chat/completions`）；`ExpressionRefreshQwenAdapter`（按 bbox 刷新 `phrase`/`category`，禁止位置词，`phrase` 为 null 时丢弃 object 并重写 queries）；`AdapterSpec.params` + CLI 传入 `dataset_config_path` 解析 `image_root`；文档与测试见 `metadata/plans/2026-04-20_1700_expression_refresh_qwen_llm/change_log.md`。 |
 | **2026-04-20** | **多 Adapter 串联**：`dataset.yaml` 支持 `adapters:` 列表（顺序串联 `convert`）；与单个 `adapter` 兼容（非空 `adapters` 优先）；`ChainedAdapter` + `adapter_specs_for_dataset`；文档 `config_yaml_zh.md`；测试 `test_adapter_chain.py`。收束见 `metadata/plans/2026-04-20_1430_multi_adapter_chain/change_log.md`。 |
 | **2026-04-20** | **Adapter 链契约（可选）**：`adapter_chain.strict_dict` + `validate_metadata_from_adapter_index`（推荐 `1`：第二段起要求 `MetadataV0`）；仅多适配器时生效。收束见 `metadata/plans/2026-04-20_1515_adapter_chain_strict_metadata/change_log.md`。 |
 | **2026-04-17** | **viz（配置化 + 兼容 QA/training）**：`/api/tree` 同时枚举 metadata（含 `metadata_noqa/metadata_qa` stage）与 training parts（只到 part 粒度）；training JSONL 支持分页读取 `/api/training_lines`（limit 封顶）+ tarinfo 切片读图 `/api/training_image`；UI 增加 Training 模式展示对话与图片。收束见 `metadata/plans/2026-04-17_2350_viz_qa_and_training_viewer/change_log.md`。 |

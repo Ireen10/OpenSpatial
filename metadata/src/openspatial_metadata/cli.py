@@ -79,9 +79,10 @@ def _instantiate_one_adapter(
     split_name: str,
     coord_space: str,
     coord_scale: int,
+    dataset_config_path: Optional[str] = None,
 ) -> Optional[object]:
     module_name = spec.module
-    class_name = spec.class_name or spec.class_
+    class_name = spec.class_name or getattr(spec, "class_", None)
     if module_name is None and spec.file_name is not None:
         module_name = f"openspatial_metadata.adapters.{spec.file_name}"
     if module_name is None or class_name is None:
@@ -89,6 +90,10 @@ def _instantiate_one_adapter(
 
     mod = import_module(module_name)
     cls = getattr(mod, class_name)
+    spec_params = getattr(spec, "params", None)
+    if not isinstance(spec_params, dict):
+        spec_params = {}
+
     kwargs: Dict[str, Any] = {}
     try:
         params = signature(cls).parameters
@@ -104,6 +109,17 @@ def _instantiate_one_adapter(
             meta = getattr(ds, "meta", None)
             if isinstance(meta, dict) and isinstance(meta.get("query_type"), str) and meta.get("query_type"):
                 kwargs["query_type_default"] = meta["query_type"]
+
+        for k, v in spec_params.items():
+            if k not in params:
+                continue
+            if k == "image_root" and isinstance(v, str):
+                kwargs[k] = _resolve_path_under_dataset_config(v, dataset_config_path)
+            else:
+                kwargs[k] = v
+
+        if "image_root" in params and "image_root" not in kwargs and dataset_config_path:
+            kwargs["image_root"] = _resolved_image_root_for_adapter(ds, dataset_config_path)
     except Exception:
         kwargs = {}
 
@@ -121,6 +137,7 @@ def _make_adapter_factory(
     split_name: str,
     coord_space: str,
     coord_scale: int,
+    dataset_config_path: Optional[str] = None,
 ) -> Callable[[], Optional[object]]:
     """
     Build a per-call adapter factory. Returns None when no adapter spec present.
@@ -139,6 +156,7 @@ def _make_adapter_factory(
                 split_name=split_name,
                 coord_space=coord_space,
                 coord_scale=coord_scale,
+                dataset_config_path=dataset_config_path,
             )
             if inst is not None:
                 instances.append(inst)
@@ -358,6 +376,22 @@ def _resolve_image_root(ds: Any, dataset_path: str) -> str:
     if isinstance(ir, str) and ir:
         return ir
     return str(Path(dataset_path).parent)
+
+
+def _resolve_path_under_dataset_config(path_str: str, dataset_config_path: Optional[str]) -> str:
+    p = Path(path_str)
+    if p.is_absolute() or not dataset_config_path:
+        return str(p)
+    return str((Path(dataset_config_path).resolve().parent / p).resolve())
+
+
+def _resolved_image_root_for_adapter(ds: Any, dataset_config_path: str) -> str:
+    """Absolute image root for filesystem reads (same rules as ``_resolve_image_root``)."""
+    base = _resolve_image_root(ds, dataset_config_path)
+    p = Path(base)
+    if not p.is_absolute():
+        p = Path(dataset_config_path).resolve().parent / p
+    return str(p.resolve())
 
 
 def _training_pack_settings(g: Any, pipe: Optional[Dict[str, Any]]) -> Tuple[int, int]:
@@ -923,6 +957,7 @@ def main(argv=None) -> None:
                 split_name=split.name,
                 coord_space="norm_0_999",
                 coord_scale=int(getattr(g, "scale", 1000)),
+                dataset_config_path=str(cfg_path),
             )
             files = [Path(p) for p in expand_inputs(split.inputs)]
             out_dir = output_root / ds.name / split.name

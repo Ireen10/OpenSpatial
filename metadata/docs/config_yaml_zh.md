@@ -108,6 +108,7 @@
 | `class_name` | string，可选 | 适配器类名，例如 `PassthroughAdapter`。可与 YAML 键 `class` 互换（模型里 `class` 映射到 `class_`）。 |
 | `module` | string，可选 | 完整 Python 模块路径；若指定则**不再**用 `file_name` 拼前缀。 |
 | `class` | string，可选 | 与 `class_name` 等价（YAML 常用 `class` 避免与关键字混淆时可写 `class_name`）。 |
+| `params` | mapping，可选 | 传入该适配器类构造函数的额外关键字（例如 `ExpressionRefreshQwenAdapter` 的 `base_url`、`model`、`timeout_s`）。若包含 `image_root` 且为相对路径，则相对于 **本数据集的 `dataset.yaml` 所在目录** 解析；省略时 CLI 会尽量使用 `viz.image_root`（与训练导出读图规则一致）。 |
 
 `module` 与 `class_name`（或 `class`）都具备时即可完成解析；仅 `file_name` + `class_name` 亦为常见写法。
 

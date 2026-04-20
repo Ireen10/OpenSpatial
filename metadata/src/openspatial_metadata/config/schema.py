@@ -15,6 +15,8 @@ class AdapterSpec(BaseModel):
     class_name: Optional[str] = None
     module: Optional[str] = None
     class_: Optional[str] = Field(default=None, alias="class")
+    # Optional constructor kwargs for the adapter class (e.g. LLM base_url, model).
+    params: Optional[Dict[str, Any]] = None
 
 
 class SplitSpec(BaseModel):
