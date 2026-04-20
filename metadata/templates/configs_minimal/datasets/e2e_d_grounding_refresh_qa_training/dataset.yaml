@@ -27,6 +27,9 @@ adapters:
       # Optional LLM overrides (otherwise use global.llm):
       # base_url: "http://127.0.0.1:8000/v1"
       # model: "qwen3-vl-32b-instruct"
+      # Optional: parallelize LLM calls within one record (multi-object) and cap total in-flight requests.
+      # llm_parallelism: 8
+      # llm_max_concurrency: 32
       on_llm_error: keep
 
   # Optional but recommended: de-duplicate exact (bbox + phrase) objects after LLM refresh.
