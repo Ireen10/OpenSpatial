@@ -167,6 +167,12 @@
     function drawOverlay() {
       const img = $("view");
       const canvas = $("overlay");
+      // Training mode visualizes exported bundle QA lines; boxes/relations from metadata do not reliably map back.
+      // Disable overlay drawing to avoid mismatched boxes.
+      if (state.mode === "training") {
+        canvas.width = 0; canvas.height = 0;
+        return;
+      }
       const rec = state.record;
       if (!img.complete || !rec || !img.naturalWidth) {
         canvas.width = 0; canvas.height = 0;
@@ -380,6 +386,7 @@
       const tr = state.training;
       if (!tr.dataset || !tr.split || tr.part == null) return;
       state.mode = "training";
+      state.record = null; // avoid stale metadata overlay on training images
       const u = `/api/training_lines?dataset=${encodeURIComponent(tr.dataset)}&split=${encodeURIComponent(tr.split)}&part=${encodeURIComponent(String(tr.part))}&offset=${encodeURIComponent(String(tr.offset))}&limit=${encodeURIComponent(String(tr.limit))}`;
       const r = await fetch(u);
       const j = await r.json();
