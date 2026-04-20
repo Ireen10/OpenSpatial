@@ -295,6 +295,7 @@ def _process_jsonl_file(
     output_path: Path,
     *,
     batch_size: int,
+    max_records: Optional[int] = None,
     resume: bool,
     strict: bool,
     output_root: Path,
@@ -305,8 +306,12 @@ def _process_jsonl_file(
     ds: Any,
     split_name: str,
     dataset_path: str,
-) -> None:
+) -> int:
     del strict  # reserved for future per-record error policy
+    if max_records is not None:
+        max_records = int(max_records)
+        if max_records <= 0:
+            return 0
     ckpt_path = _checkpoint_path(checkpoint_root, str(input_path))
     old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(input_path))
     ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
@@ -316,6 +321,7 @@ def _process_jsonl_file(
     adapter = adapter_factory()
     bar = None
     processed = 0
+    processed_this_run = 0
     if _PROGRESS_MODE == "tqdm":
         bar = _tqdm(
             total=None,
@@ -332,6 +338,8 @@ def _process_jsonl_file(
         for record, ref in iter_jsonl(input_path):
             if ref.input_index < next_idx:
                 continue
+            if max_records is not None and processed_this_run >= max_records:
+                break
             out = _apply_adapter(adapter, record)
             out.setdefault("aux", {})
             out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
@@ -341,6 +349,7 @@ def _process_jsonl_file(
             if bar is not None:
                 bar.update(1)
                 processed += 1
+            processed_this_run += 1
             if len(buffer) >= batch_size:
                 w.write_records(buffer)
                 w.flush()
@@ -364,6 +373,7 @@ def _process_jsonl_file(
             )
     if bar is not None:
         bar.close()
+    return processed_this_run
 
 
 def _split_subdir(out_dir: Path, sub: str) -> Path:
@@ -492,8 +502,9 @@ def _process_jsonl_file_training_pipeline(
     qa_task_overrides: Optional[Dict[str, Any]],
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
+    max_records: Optional[int] = None,
     tqdm_pos: Optional[int] = None,
-) -> None:
+) -> int:
     """
     One input jsonl file -> metadata_noqa / metadata_qa shards (``data_{part_id}.jsonl``).
     Training bundles are produced in a separate pass after all input shards complete.
@@ -502,6 +513,10 @@ def _process_jsonl_file_training_pipeline(
     old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(input_path))
     ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
     next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
+    if max_records is not None:
+        max_records = int(max_records)
+        if max_records <= 0:
+            return 0
 
     # Metadata outputs: {output_root}/{ds}/{split}/{metadata_noqa|metadata_qa}/data_{part_id:06d}.jsonl
     split_out = output_root / ds.name / split_name
@@ -517,6 +532,7 @@ def _process_jsonl_file_training_pipeline(
     checkpoint_root.mkdir(parents=True, exist_ok=True)
 
     bar = None
+    processed_this_run = 0
     if _PROGRESS_MODE == "tqdm":
         bar = _tqdm(
             total=None,
@@ -536,6 +552,8 @@ def _process_jsonl_file_training_pipeline(
             for record, ref in iter_jsonl(input_path):
                 if ref.input_index < next_idx:
                     continue
+                if max_records is not None and processed_this_run >= max_records:
+                    break
 
                 # Step 1: to_metadata (adapter + dataset meta + enrich)
                 if enable_to_metadata:
@@ -574,9 +592,11 @@ def _process_jsonl_file_training_pipeline(
                     bar.update(1)
                 elif _PROGRESS_MODE == "log" and (next_idx % 1000 == 0):
                     _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
+                processed_this_run += 1
     finally:
         if bar is not None:
             bar.close()
+    return processed_this_run
 
 
 def _process_jsonl_files_parallel(
@@ -928,6 +948,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-root", default=None, help="Override output root (otherwise from global config).")
     p.add_argument("--resume", action="store_true", help="Resume from checkpoints.")
     p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel); 0 = use global.yaml num_workers.")
+    p.add_argument(
+        "--max-records-per-split",
+        type=int,
+        default=0,
+        help="If >0, process at most N records per dataset split (forces sequential execution for determinism).",
+    )
+    p.add_argument(
+        "--max-records-total",
+        type=int,
+        default=0,
+        help="If >0, process at most N records across all discovered datasets/splits (forces sequential execution).",
+    )
     p.add_argument("--progress", choices=["tqdm", "log", "none"], default="tqdm", help="Progress display mode.")
     return p
 
@@ -947,6 +979,9 @@ def main(argv=None) -> None:
             _log("tqdm not available; falling back to log progress")
     g = load_global_config(args.global_config)
     cli_workers = args.num_workers
+    max_records_per_split = int(getattr(args, "max_records_per_split", 0) or 0)
+    max_records_total = int(getattr(args, "max_records_total", 0) or 0)
+    remaining_total: Optional[int] = max_records_total if max_records_total > 0 else None
     qa_config_path = args.qa_config or getattr(g, "qa_config", None)
     qa_registry: Dict[str, Any] = {}
     if qa_config_path:
@@ -959,6 +994,8 @@ def main(argv=None) -> None:
     cfg_paths = discover_dataset_configs(args.config_root)
     _log(f"discovered {len(cfg_paths)} dataset config(s) under {args.config_root}")
     for cfg_path in cfg_paths:
+        if remaining_total is not None and remaining_total <= 0:
+            break
         ds = load_dataset_config(cfg_path)
         resolve_adapter(ds)
         ds_output_root = args.output_root or getattr(ds, "metadata_output_root", None) or g.metadata_output_root
@@ -968,6 +1005,8 @@ def main(argv=None) -> None:
         if rel3d:
             raise ValueError("relations_3d enrich not implemented")
         for split in ds.splits:
+            if remaining_total is not None and remaining_total <= 0:
+                break
             adapter_factory = _make_adapter_factory(
                 ds,
                 g,
@@ -977,10 +1016,17 @@ def main(argv=None) -> None:
                 dataset_config_path=str(cfg_path),
             )
             files = [Path(p) for p in expand_inputs(split.inputs)]
+            remaining: Optional[int] = None
+            if max_records_per_split > 0:
+                remaining = max_records_per_split
+            if remaining_total is not None:
+                remaining = remaining_total if remaining is None else min(remaining, remaining_total)
             out_dir = output_root / ds.name / split.name
             out_dir.mkdir(parents=True, exist_ok=True)
             checkpoint_root = out_dir / ".checkpoints"
             eff = effective_parallel_workers(cli_workers, g.num_workers, len(files))
+            if remaining is not None:
+                eff = 1
             resume = args.resume or g.resume
             pipe = _pipeline_flags(ds)
             _log(
@@ -1022,8 +1068,10 @@ def main(argv=None) -> None:
                         )
                     else:
                         for part_id, ip in enumerate(files):
+                            if remaining is not None and remaining <= 0:
+                                break
                             _log(f"{ds.name}/{split.name}: processing part={part_id} {ip}")
-                            _process_jsonl_file_training_pipeline(
+                            n_done = _process_jsonl_file_training_pipeline(
                                 ip,
                                 part_id=part_id,
                                 resume=resume,
@@ -1039,9 +1087,14 @@ def main(argv=None) -> None:
                                 qa_task_overrides=qa_task_overrides,
                                 enable_to_metadata=enable_to_metadata,
                                 enable_ensure_qa=enable_ensure_qa,
+                                max_records=remaining,
                                 tqdm_pos=0,
                             )
                             _log(f"{ds.name}/{split.name}: done {ip.name}")
+                            if remaining is not None:
+                                remaining -= int(n_done)
+                                if remaining_total is not None:
+                                    remaining_total = remaining
                     _finalize_training_export_for_split(
                         enable_export=enable_export,
                         output_root=output_root,
@@ -1071,12 +1124,15 @@ def main(argv=None) -> None:
                         )
                     else:
                         for part_id, ip in enumerate(files):
+                            if remaining is not None and remaining <= 0:
+                                break
                             op = out_dir / _metadata_output_jsonl_name(part_id)
                             _log(f"{ds.name}/{split.name}: processing {ip}")
-                            _process_jsonl_file(
+                            n_done = _process_jsonl_file(
                                 ip,
                                 op,
                                 batch_size=g.batch_size,
+                                max_records=remaining,
                                 resume=resume,
                                 strict=g.strict,
                                 output_root=output_root,
@@ -1088,7 +1144,15 @@ def main(argv=None) -> None:
                                 dataset_path=cfg_path,
                             )
                             _log(f"{ds.name}/{split.name}: done {ip.name}")
+                            if remaining is not None:
+                                remaining -= int(n_done)
+                                if remaining_total is not None:
+                                    remaining_total = remaining
             elif split.input_type == "json_files":
+                if remaining is not None:
+                    files = files[:remaining]
+                    if remaining_total is not None:
+                        remaining_total -= len(files)
                 if eff > 1:
                     _process_json_files_parallel(
                         files,

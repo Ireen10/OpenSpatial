@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -142,6 +143,7 @@ class ExpressionRefreshQwenAdapter:
         temperature: float = 0.2,
         max_tokens: int = 512,
         on_llm_error: str = "keep",
+        print_llm_output: bool = False,
         client: Optional[OpenAICompatibleChatClient] = None,
     ) -> None:
         self.dataset_name = dataset_name
@@ -153,6 +155,7 @@ class ExpressionRefreshQwenAdapter:
         self.temperature = float(temperature)
         self.max_tokens = int(max_tokens)
         self.on_llm_error = on_llm_error if on_llm_error in ("keep", "drop") else "keep"
+        self.print_llm_output = bool(print_llm_output)
         self._client = client or OpenAICompatibleChatClient(
             base_url=base_url,
             api_key=api_key,
@@ -191,7 +194,15 @@ class ExpressionRefreshQwenAdapter:
         content = msg.get("content")
         if not isinstance(content, str):
             raise RuntimeError("missing message.content string")
-        return _parse_json_object_from_llm_text(content)
+        parsed = _parse_json_object_from_llm_text(content)
+        if self.print_llm_output:
+            # Console-only debug: do not persist; may interleave with tqdm output.
+            print(
+                f"[openspatial-metadata][expression_refresh][llm] {parsed}",
+                file=sys.stderr,
+                flush=True,
+            )
+        return parsed
 
     def convert(self, record: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(record)
