@@ -36,11 +36,12 @@ adapters:
       # Optional: parallelize LLM calls within one record (multi-object) and cap total in-flight requests.
       # llm_parallelism: 8
       # llm_max_concurrency: 32
-      # Optional: refresh strategy
-      # - per_object (default): one LLM call per bbox (image contains a red box)
+      # Refresh strategy:
+      # - per_object: one LLM call per bbox (image contains a red box)
       # - all_objects: one LLM call per record (image may draw all boxes as #1..#N)
-      # refresh_mode: all_objects
-      # draw_boxes: true
+      refresh_mode: per_object
+      # Only used when refresh_mode=all_objects.
+      draw_boxes: true
       on_llm_error: keep
 
   # Optional but recommended: de-duplicate exact (bbox + phrase) objects after LLM refresh.
