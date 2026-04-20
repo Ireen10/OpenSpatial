@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .config_index import DatasetIndexEntry, resolved_image_root, resolved_training_root
+from ..config.schema import DatasetConfig
 from .paths import (
     count_lines_jsonl,
     enumerate_metadata_jsonl,
@@ -44,6 +45,18 @@ def _read_static_index() -> bytes:
     return here.read_bytes()
 
 
+def _resolved_metadata_root(default_output_root: Path, ds: DatasetConfig) -> Path:
+    """
+    Resolve dataset.metadata_output_root for filesystem use.
+    - If set: resolve like CLI (relative to current working directory).
+    - Else: use default_output_root (viz --output-root or global.metadata_output_root).
+    """
+    raw = getattr(ds, "metadata_output_root", None)
+    if isinstance(raw, str) and raw:
+        return Path(raw).expanduser().resolve()
+    return default_output_root.resolve()
+
+
 class VizRequestHandler(BaseHTTPRequestHandler):
     server_version = "OpenSpatialMetadataViz/0.1"
 
@@ -68,16 +81,29 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/tree":
-                files = enumerate_metadata_jsonl(output_root)
-                # enumerate training parts per-dataset using dataset.training_output_root
+                # Enumerate metadata shards PER dataset root, then filter to that dataset
+                # to avoid duplicates when multiple datasets share the same root.
+                files = []
+                cache_meta: Dict[str, list] = {}
                 parts = []
+                cache_train: Dict[str, list] = {}
                 for name in sorted(dataset_index.keys()):
+                    ent = dataset_index[name]
+                    mr = _resolved_metadata_root(output_root, ent.dataset)
+                    key_m = str(mr)
+                    if key_m not in cache_meta:
+                        cache_meta[key_m] = enumerate_metadata_jsonl(mr)
+                    files.extend([f for f in cache_meta[key_m] if f.get("dataset_dir") == name])
+
                     tr = resolved_training_root(dataset_index, name)
                     if tr is None and global_training_root is not None:
                         tr = global_training_root
                     if tr is None:
                         continue
-                    parts.extend(enumerate_training_parts(tr))
+                    key_t = str(tr)
+                    if key_t not in cache_train:
+                        cache_train[key_t] = enumerate_training_parts(tr)
+                    parts.extend([p for p in cache_train[key_t] if p.get("dataset") == name])
                 _send_json(
                     self,
                     {
@@ -115,6 +141,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/record":
+                dataset_name = (qs.get("dataset") or [None])[0]
                 rel = (qs.get("path") or [None])[0]
                 line_s = (qs.get("line") or ["0"])[0]
                 if not rel:
@@ -125,9 +152,12 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     _send_json(self, {"error": "bad line"}, 400)
                     return
-                full = (output_root / rel).resolve()
-                if not is_under_root(full, output_root):
-                    _send_json(self, {"error": "path outside output_root"}, 403)
+                base_root = output_root
+                if isinstance(dataset_name, str) and dataset_name and dataset_name in dataset_index:
+                    base_root = _resolved_metadata_root(output_root, dataset_index[dataset_name].dataset)
+                full = (base_root / rel).resolve()
+                if not is_under_root(full, base_root):
+                    _send_json(self, {"error": "path outside metadata_root"}, 403)
                     return
                 rec = read_line_jsonl(full, line_idx)
                 nlines = count_lines_jsonl(full)
@@ -143,14 +173,18 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/seek":
+                dataset_name = (qs.get("dataset") or [None])[0]
                 rel = (qs.get("path") or [None])[0]
                 sample_id = (qs.get("sample_id") or [None])[0]
                 if not rel or not sample_id:
                     _send_json(self, {"error": "missing path or sample_id"}, 400)
                     return
-                full = (output_root / rel).resolve()
-                if not is_under_root(full, output_root):
-                    _send_json(self, {"error": "path outside output_root"}, 403)
+                base_root = output_root
+                if isinstance(dataset_name, str) and dataset_name and dataset_name in dataset_index:
+                    base_root = _resolved_metadata_root(output_root, dataset_index[dataset_name].dataset)
+                full = (base_root / rel).resolve()
+                if not is_under_root(full, base_root):
+                    _send_json(self, {"error": "path outside metadata_root"}, 403)
                     return
                 try:
                     line_idx = find_sample_line(full, sample_id)
