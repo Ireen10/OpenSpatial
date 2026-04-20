@@ -309,6 +309,8 @@ def _materialize_refs(rng: random.Random, anchor: dict, target: dict, roles_to_m
     anchor_name = _display_name(anchor)
     target_name = _display_name(target)
     same_phrase = _same_surface_description(anchor, target)
+    anchor_noun = anchor.get("category") if isinstance(anchor.get("category"), str) and anchor.get("category") else "object"
+    target_noun = target.get("category") if isinstance(target.get("category"), str) and target.get("category") else "object"
 
     if not roles_to_mark:
         return anchor_name, target_name, {
@@ -330,13 +332,17 @@ def _materialize_refs(rng: random.Random, anchor: dict, target: dict, roles_to_m
     if same_phrase and role_to_color.get("anchor") and role_to_color.get("target"):
         ca = role_to_color["anchor"]
         ct = role_to_color["target"]
-        anchor_name = tpl.render_marked_ref_same_phrase(rng, color=ca)
-        target_name = tpl.render_marked_ref_same_phrase(rng, color=ct)
+        anchor_name = tpl.render_marked_ref_same_phrase(rng, color=ca, noun=str(anchor_noun))
+        target_name = tpl.render_marked_ref_same_phrase(rng, color=ct, noun=str(target_noun))
     else:
         if "anchor" in role_to_color:
-            anchor_name = tpl.render_marked_ref_with_hint(rng, name=anchor_name, color=role_to_color["anchor"])
+            anchor_name = tpl.render_marked_ref_with_hint(
+                rng, name=anchor_name, color=role_to_color["anchor"], noun=str(anchor_noun)
+            )
         if "target" in role_to_color:
-            target_name = tpl.render_marked_ref_with_hint(rng, name=target_name, color=role_to_color["target"])
+            target_name = tpl.render_marked_ref_with_hint(
+                rng, name=target_name, color=role_to_color["target"], noun=str(target_noun)
+            )
 
     return anchor_name, target_name, {
         "marked_roles": list(role_to_color.keys()),

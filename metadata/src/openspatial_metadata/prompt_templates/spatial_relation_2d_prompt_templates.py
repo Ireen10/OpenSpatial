@@ -143,10 +143,10 @@ JUDGMENT_ANSWER_INCORRECT_POOL = ["Incorrect. {full_sentence}"]
 
 # Marked reference text pools
 MARKED_REF_SAME_PHRASE_POOL = [
-    "the object in the {color} box",
+    "the {noun} in the {color} box",
 ]
 MARKED_REF_WITH_HINT_POOL = [
-    "{name} (the object in the {color} box in the image)",
+    "{name} (the {noun} in the {color} box in the image)",
 ]
 
 
@@ -316,22 +316,22 @@ def render_judgment_answer(
     return _fmt(tpl, anchor=anchor, target=target, full_sentence=full_sentence)
 
 
-def render_marked_ref_same_phrase(rng: random.Random, *, color: str) -> str:
+def render_marked_ref_same_phrase(rng: random.Random, *, color: str, noun: str = "object") -> str:
     tpl = (
         rng.choice(MARKED_REF_SAME_PHRASE_POOL)
         if MARKED_REF_SAME_PHRASE_POOL
-        else "the object in the {color} box"
+        else "the {noun} in the {color} box"
     )
-    return tpl.format(color=color)
+    return tpl.format(color=color, noun=noun)
 
 
-def render_marked_ref_with_hint(rng: random.Random, *, name: str, color: str) -> str:
+def render_marked_ref_with_hint(rng: random.Random, *, name: str, color: str, noun: str = "object") -> str:
     tpl = (
         rng.choice(MARKED_REF_WITH_HINT_POOL)
         if MARKED_REF_WITH_HINT_POOL
-        else "{name} (the object in the {color} box in the image)"
+        else "{name} (the {noun} in the {color} box in the image)"
     )
-    return tpl.format(name=name, color=color)
+    return tpl.format(name=name, color=color, noun=noun)
 
 
 def render_marker_meta(roles_to_colors: Dict[str, str]) -> Tuple[list[str], dict]:
