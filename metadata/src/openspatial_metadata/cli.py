@@ -9,7 +9,9 @@ from inspect import signature
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .adapters.chained import ChainedAdapter
 from .config.loader import (
+    adapter_specs_for_dataset,
     discover_dataset_configs,
     expand_inputs,
     load_dataset_config,
@@ -70,6 +72,49 @@ def _tqdm(*args, **kwargs):
     return _TQDM(*args, **kwargs)
 
 
+def _instantiate_one_adapter(
+    spec: Any,
+    ds: Any,
+    *,
+    split_name: str,
+    coord_space: str,
+    coord_scale: int,
+) -> Optional[object]:
+    module_name = spec.module
+    class_name = spec.class_name or spec.class_
+    if module_name is None and spec.file_name is not None:
+        module_name = f"openspatial_metadata.adapters.{spec.file_name}"
+    if module_name is None or class_name is None:
+        return None
+
+    mod = import_module(module_name)
+    cls = getattr(mod, class_name)
+    kwargs: Dict[str, Any] = {}
+    try:
+        params = signature(cls).parameters
+        if "dataset_name" in params:
+            kwargs["dataset_name"] = ds.name
+        if "split" in params:
+            kwargs["split"] = split_name
+        if "coord_space" in params:
+            kwargs["coord_space"] = coord_space
+        if "coord_scale" in params:
+            kwargs["coord_scale"] = coord_scale
+        if "query_type_default" in params:
+            meta = getattr(ds, "meta", None)
+            if isinstance(meta, dict) and isinstance(meta.get("query_type"), str) and meta.get("query_type"):
+                kwargs["query_type_default"] = meta["query_type"]
+    except Exception:
+        kwargs = {}
+
+    if kwargs:
+        try:
+            return cls(**kwargs)
+        except TypeError:
+            pass
+    return cls()
+
+
 def _make_adapter_factory(
     ds: Any,
     *,
@@ -79,47 +124,35 @@ def _make_adapter_factory(
 ) -> Callable[[], Optional[object]]:
     """
     Build a per-call adapter factory. Returns None when no adapter spec present.
-    Adapter constructors may optionally accept dataset_name/split keyword args.
+    Multiple specs become a ChainedAdapter (same constructor injection per step).
     """
-    spec = getattr(ds, "adapter", None)
-    if spec is None:
-        return lambda: None
-
-    module_name = spec.module
-    class_name = spec.class_name or spec.class_
-    if module_name is None and spec.file_name is not None:
-        module_name = f"openspatial_metadata.adapters.{spec.file_name}"
-    if module_name is None or class_name is None:
+    specs = adapter_specs_for_dataset(ds)
+    if not specs:
         return lambda: None
 
     def _factory() -> Optional[object]:
-        mod = import_module(module_name)
-        cls = getattr(mod, class_name)
-        kwargs: Dict[str, Any] = {}
-        try:
-            params = signature(cls).parameters
-            if "dataset_name" in params:
-                kwargs["dataset_name"] = ds.name
-            if "split" in params:
-                kwargs["split"] = split_name
-            if "coord_space" in params:
-                kwargs["coord_space"] = coord_space
-            if "coord_scale" in params:
-                kwargs["coord_scale"] = coord_scale
-            if "query_type_default" in params:
-                meta = getattr(ds, "meta", None)
-                if isinstance(meta, dict) and isinstance(meta.get("query_type"), str) and meta.get("query_type"):
-                    kwargs["query_type_default"] = meta["query_type"]
-        except Exception:
-            # If signature introspection fails, fall back to minimal/no-arg init.
-            kwargs = {}
-
-        if kwargs:
-            try:
-                return cls(**kwargs)
-            except TypeError:
-                pass
-        return cls()
+        instances: List[object] = []
+        for spec in specs:
+            inst = _instantiate_one_adapter(
+                spec,
+                ds,
+                split_name=split_name,
+                coord_space=coord_space,
+                coord_scale=coord_scale,
+            )
+            if inst is not None:
+                instances.append(inst)
+        if not instances:
+            return None
+        if len(instances) == 1:
+            return instances[0]
+        chain_kw: Dict[str, Any] = {}
+        ac = getattr(ds, "adapter_chain", None)
+        if ac is not None:
+            chain_kw["strict_dict"] = bool(getattr(ac, "strict_dict", True))
+            vm = getattr(ac, "validate_metadata_from_adapter_index", None)
+            chain_kw["validate_metadata_from_adapter_index"] = int(vm) if vm is not None else None
+        return ChainedAdapter(instances, **chain_kw)
 
     return _factory
 
@@ -353,15 +386,39 @@ def _finalize_training_export_for_split(
         return
     from .export.training_pack import export_training_bundles_for_split
 
-    n = export_training_bundles_for_split(
-        output_root=output_root,
-        training_root=training_root,
-        dataset_name=ds.name,
-        split_name=split_name,
-        image_root=_resolve_image_root(ds, dataset_path),
-        rows_per_part=rows_per_part,
-        row_align=row_align,
-    )
+    bar = None
+
+    def on_shard_progress(si: int, n_shards: int, shard_path: Path) -> None:
+        nonlocal bar
+        if _PROGRESS_MODE == "none":
+            return
+        if _PROGRESS_MODE == "tqdm" and _TQDM is not None:
+            if bar is None:
+                bar = _tqdm(
+                    total=n_shards,
+                    desc=f"training export {ds.name}/{split_name}",
+                    unit="shard",
+                    dynamic_ncols=True,
+                    leave=False,
+                )
+            bar.update(1)
+            return
+        _log(f"training export {ds.name}/{split_name}: shard {si + 1}/{n_shards} {shard_path.name}")
+
+    try:
+        n = export_training_bundles_for_split(
+            output_root=output_root,
+            training_root=training_root,
+            dataset_name=ds.name,
+            split_name=split_name,
+            image_root=_resolve_image_root(ds, dataset_path),
+            rows_per_part=rows_per_part,
+            row_align=row_align,
+            on_shard_progress=on_shard_progress,
+        )
+    finally:
+        if bar is not None:
+            bar.close()
     _log(
         f"training export {ds.name}/{split_name}: wrote {n} bundle(s) "
         f"(rows_per_part={rows_per_part}, row_align={row_align})"

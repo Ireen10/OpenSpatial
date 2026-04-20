@@ -85,7 +85,7 @@
 - **说明**：当配置 `pipelines.ensure_qa=true` 或 `pipelines.export_training=true` 时，CLI 对 `jsonl` 输入会走“单条记录不中断”的串联执行路径（同一 worker 内）：
   - `to_metadata`：可选。对非 metadata 输入做 adapter/meta/enrich 后写出 `metadata_noqa/`（每条输入一行）。
   - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`（仅当 `qa_items` 非空时写一行；为空则仍保留对应 `metadata_noqa/` 行，但不写 `metadata_qa/`、也不做训练导出）。
-  - `export_training`：可选。将带 `qa_items` 的 metadata 导出为训练 bundle（`images/` + `jsonl/`）
+  - `export_training`：可选。将带 `qa_items` 的 metadata 导出为训练 bundle（`images/` + `jsonl/`）。若 CLI 使用 `--progress tqdm` 或 `--progress log`，该阶段进度按 `metadata_qa/data_*.jsonl` **分片（shard）**推进。
 
 支持字段（最小集）：
 
@@ -100,7 +100,7 @@
 ### `adapter`（可选）
 
 - **类型**：映射，对应 `AdapterSpec`。  
-- **作用**：声明本数据集使用的适配器类；`resolve_adapter()` 会尝试 **import 并 `getattr` 该类**，仅校验**可导入**，**不在当前 CLI 主流程里调用转换逻辑**（框架阶段占位）。
+- **作用**：声明本数据集使用的适配器类；`resolve_adapter()` 会尝试 **import 并 `getattr` 该类**（仅校验可导入）。CLI 在每条记录上会调用 `convert`（见 `adapters` 多段串联说明）。
 
 | 子字段 | 类型 | 说明 |
 |--------|------|------|
@@ -110,6 +110,22 @@
 | `class` | string，可选 | 与 `class_name` 等价（YAML 常用 `class` 避免与关键字混淆时可写 `class_name`）。 |
 
 `module` 与 `class_name`（或 `class`）都具备时即可完成解析；仅 `file_name` + `class_name` 亦为常见写法。
+
+### `adapters`（可选）
+
+- **类型**：`AdapterSpec` 的 **列表**，按 **YAML 顺序从左到右** 串联：  
+  `record' = C.convert(B.convert(A.convert(record)))`。
+- **与 `adapter` 的关系**：若 `adapters` **存在且非空**，则**仅使用** `adapters`；若 `adapters` 省略、为空列表、或为 `null`，则回退到单个 `adapter`（与历史行为一致）。
+- **校验**：`resolve_adapter()` 会对链上 **每一个** 条目做 import 校验。
+
+### `adapter_chain`（可选）
+
+仅在 **`adapters` 含 2 个及以上** 适配器、CLI 构造 `ChainedAdapter` 时生效；对应 `AdapterChainConfig`。
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `strict_dict` | bool | `true` | 每一段 `convert` 必须返回 `dict`，否则抛 `TypeError`。设为 `false` 可恢复旧版「非 dict 则忽略返回值」的宽松行为（不推荐）。 |
+| `validate_metadata_from_adapter_index` | int 或 `null` | `null` | 设为 **非负整数 `N`** 时：在调用索引为 `N, N+1, …` 的适配器**之前**，将当前 dict 校验为 `MetadataV0`。**推荐生产链**：`N=1`（第一段吃源数据，第二段起输入须已是合法 metadata）。`null` 表示不在链内做该校验（与改造前行为一致）。 |
 
 ### `splits`（必填）
 

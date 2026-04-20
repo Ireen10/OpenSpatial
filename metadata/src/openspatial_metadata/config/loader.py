@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import yaml
 
-from .schema import DatasetConfig, GlobalConfig
+from .schema import AdapterSpec, DatasetConfig, GlobalConfig
 
 
 PathLike = Union[str, Path]
@@ -95,20 +95,30 @@ def discover_dataset_configs(config_root: PathLike) -> List[str]:
     return paths
 
 
+def adapter_specs_for_dataset(dataset: DatasetConfig) -> List[AdapterSpec]:
+    """
+    Effective adapter list: non-empty ``adapters`` wins; else legacy single ``adapter``.
+    """
+    chain = getattr(dataset, "adapters", None)
+    if isinstance(chain, list) and len(chain) > 0:
+        return list(chain)
+    if dataset.adapter is not None:
+        return [dataset.adapter]
+    return []
+
+
 def resolve_adapter(dataset: DatasetConfig) -> None:
     """
-    Validate that adapter spec can be imported.
+    Validate that every adapter spec in the effective chain can be imported.
     This only checks importability; it doesn't execute conversion logic.
     """
-    if dataset.adapter is None:
-        return
-    spec = dataset.adapter
-    module_name = spec.module
-    class_name = spec.class_name or spec.class_
-    if module_name is None and spec.file_name is not None:
-        module_name = f"openspatial_metadata.adapters.{spec.file_name}"
-    if module_name is None or class_name is None:
-        return
-    mod = importlib.import_module(module_name)
-    getattr(mod, class_name)
+    for spec in adapter_specs_for_dataset(dataset):
+        module_name = spec.module
+        class_name = spec.class_name or spec.class_
+        if module_name is None and spec.file_name is not None:
+            module_name = f"openspatial_metadata.adapters.{spec.file_name}"
+        if module_name is None or class_name is None:
+            continue
+        mod = importlib.import_module(module_name)
+        getattr(mod, class_name)
 

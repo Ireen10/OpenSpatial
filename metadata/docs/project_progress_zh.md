@@ -15,6 +15,8 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-20** | **多 Adapter 串联**：`dataset.yaml` 支持 `adapters:` 列表（顺序串联 `convert`）；与单个 `adapter` 兼容（非空 `adapters` 优先）；`ChainedAdapter` + `adapter_specs_for_dataset`；文档 `config_yaml_zh.md`；测试 `test_adapter_chain.py`。收束见 `metadata/plans/2026-04-20_1430_multi_adapter_chain/change_log.md`。 |
+| **2026-04-20** | **Adapter 链契约（可选）**：`adapter_chain.strict_dict` + `validate_metadata_from_adapter_index`（推荐 `1`：第二段起要求 `MetadataV0`）；仅多适配器时生效。收束见 `metadata/plans/2026-04-20_1515_adapter_chain_strict_metadata/change_log.md`。 |
 | **2026-04-17** | **viz（配置化 + 兼容 QA/training）**：`/api/tree` 同时枚举 metadata（含 `metadata_noqa/metadata_qa` stage）与 training parts（只到 part 粒度）；training JSONL 支持分页读取 `/api/training_lines`（limit 封顶）+ tarinfo 切片读图 `/api/training_image`；UI 增加 Training 模式展示对话与图片。收束见 `metadata/plans/2026-04-17_2350_viz_qa_and_training_viewer/change_log.md`。 |
 | **2026-04-17** | **训练导出 pipeline（并行/断点续跑，最小 E2E）**：CLI 支持 `pipelines` 串联 `to_metadata/ensure_qa/export_training`；新增 `training_output_root`、global `qa_config` + `--qa-config`；训练 bundle 产出 `images/*.tar` + `*_tarinfo.json` + `jsonl/*.jsonl`，并支持 tar member 冲突去重 `__r{input_index}`；含测试配置与 E2E UT。收束见 `metadata/plans/2026-04-17_1059_training_export_parallel_io/change_log.md`。 |
 | **2026-04-17** | **2D 空间关系 annotation（首轮）**：`RelationV0.relation_id`（解析自动补齐）+ `enrich_relations_2d` 统一 id；新 task `task/annotation/spatial_relation_2d.py`、demo 配置、`relation_2d_prompt_templates`；同指代短槽位、双框 tier 排序 + `dual_box_keep_prob`、artifact 生成脚本与聚焦 UT。收束见 `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/change_log.md`。 |

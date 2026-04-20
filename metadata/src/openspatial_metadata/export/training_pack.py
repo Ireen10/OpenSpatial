@@ -12,7 +12,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from openspatial_metadata.export.paths import disambiguate_relpath
 from openspatial_metadata.export.run import build_training_members_and_rows
@@ -73,6 +73,7 @@ def export_training_bundles_from_metadata_qa(
     image_root: Union[str, Path],
     rows_per_part: int,
     row_align: int,
+    on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
 ) -> int:
     """
     Read all ``data_*.jsonl`` in ``metadata_qa_dir`` (numeric order), emit training bundles under
@@ -91,6 +92,7 @@ def export_training_bundles_from_metadata_qa(
     if not shards:
         return 0
 
+    n_shards = len(shards)
     buffer: List[Tuple[str, bytes, Dict[str, Any], int]] = []
     bundle_id = 0
     image_root = Path(image_root)
@@ -104,7 +106,9 @@ def export_training_bundles_from_metadata_qa(
         _write_one_bundle(bundle_root, bundle_id, chunk)
         bundle_id += 1
 
-    for shard_path in shards:
+    for si, shard_path in enumerate(shards):
+        if on_shard_progress is not None:
+            on_shard_progress(si, n_shards, shard_path)
         with shard_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -155,6 +159,7 @@ def export_training_bundles_for_split(
     image_root: Union[str, Path],
     rows_per_part: int,
     row_align: int,
+    on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
 ) -> int:
     """
     Clear previous ``data_*`` bundles under ``training_root/{dataset}/{split}``, then pack from
@@ -174,4 +179,5 @@ def export_training_bundles_for_split(
         image_root=image_root,
         rows_per_part=rows_per_part,
         row_align=row_align,
+        on_shard_progress=on_shard_progress,
     )

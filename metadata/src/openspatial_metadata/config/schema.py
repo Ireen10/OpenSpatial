@@ -37,6 +37,19 @@ class VizSpec(BaseModel):
     image_root: Optional[str] = None
 
 
+class AdapterChainConfig(BaseModel):
+    """Options for ``ChainedAdapter`` (used only when ``adapters`` has 2+ entries)."""
+
+    class Config:
+        extra = "forbid"
+
+    # Each step must return a dict; otherwise TypeError.
+    strict_dict: bool = True
+    # Before running adapter at index k for every k >= N, validate current payload as MetadataV0.
+    # None disables in-chain validation. Typical N=1: first adapter may ingest raw source; rest see metadata.
+    validate_metadata_from_adapter_index: Optional[int] = None
+
+
 class DatasetConfig(BaseModel):
     class Config:
         extra = "allow"
@@ -44,6 +57,10 @@ class DatasetConfig(BaseModel):
     name: str
     meta: Dict[str, Any] = Field(default_factory=dict)
     adapter: Optional[AdapterSpec] = None
+    # Ordered chain; when non-empty, takes precedence over legacy single `adapter`.
+    adapters: Optional[List[AdapterSpec]] = None
+    # Optional behavior for multi-adapter ``ChainedAdapter`` (ignored for 0–1 concrete adapters).
+    adapter_chain: Optional[AdapterChainConfig] = None
     splits: List[SplitSpec]
     metadata_output_root: Optional[str] = None
     training_output_root: Optional[str] = None
