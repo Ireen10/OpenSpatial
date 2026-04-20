@@ -47,6 +47,13 @@ def _fmt(s: str, **kwargs: str) -> str:
     )
 
 
+def _sample_task_description(rng: random.Random, *, anchor: str, target: str) -> str:
+    """TASK_DESCRIPTION_POOL entries may include {anchor}/{target}; always format here."""
+    if not TASK_DESCRIPTION_POOL:
+        return ""
+    return _fmt(rng.choice(TASK_DESCRIPTION_POOL), anchor=anchor, target=target)
+
+
 # ----------------------------
 # Candidate pools (edit these for diversity)
 # ----------------------------
@@ -171,7 +178,7 @@ def render_full_sentence_qa_pair(rng: random.Random, *, anchor: str, target: str
     - If mode == "none": do not append instruction; choose an answer mode key randomly, then sample that pool.
     - Else: answer mode key is the same as the instruction mode key (e.g., short_phrase -> short_phrase).
     """
-    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    task = _sample_task_description(rng, anchor=anchor, target=target)
     q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
 
     inst_mode = rng.choice(list(FULL_SENTENCE_INSTRUCTIONS_BY_MODE.keys()))
@@ -194,7 +201,7 @@ def render_full_sentence_qa_pair_with_modes(
     """
     Like `render_full_sentence_qa_pair`, but also returns (instruction_mode, answer_mode).
     """
-    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    task = _sample_task_description(rng, anchor=anchor, target=target)
     q = _fmt(rng.choice(FULL_SENTENCE_QUESTION_POOL), anchor=anchor, target=target)
 
     inst_mode = rng.choice(list(FULL_SENTENCE_INSTRUCTIONS_BY_MODE.keys()))
@@ -239,7 +246,7 @@ def render_single_axis_qa_pair_with_modes(
     - If mode == "none": no instruction appended; choose an answer mode key randomly.
     - Else: answer mode key is the same as the instruction mode key.
     """
-    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    task = _sample_task_description(rng, anchor=anchor, target=target)
     q = _fmt(
         rng.choice(SINGLE_AXIS_QUESTION_POOL),
         anchor=anchor,
@@ -270,7 +277,7 @@ def render_judgment_statement(*, anchor: str, target: str, statement_direction: 
 
 
 def render_judgment_question(rng: random.Random, *, anchor: str, target: str, statement: str) -> str:
-    task = rng.choice(TASK_DESCRIPTION_POOL) if TASK_DESCRIPTION_POOL else ""
+    task = _sample_task_description(rng, anchor=anchor, target=target)
     q = _fmt(rng.choice(JUDGMENT_QUESTION_POOL), anchor=anchor, target=target, statement=statement)
     mode = rng.choice(list(JUDGMENT_INSTRUCTIONS_BY_MODE.keys()))
     ins_pool = JUDGMENT_INSTRUCTIONS_BY_MODE.get(mode) or [""]

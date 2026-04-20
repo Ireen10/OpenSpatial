@@ -79,3 +79,71 @@ def test_training_pipeline_cli_e2e(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     for rp in relpaths:
         assert rp in idx
 
+
+@pytest.mark.e2e
+def test_training_pipeline_writes_noqa_when_ensure_qa_produces_no_items(tmp_path: Path) -> None:
+    """If ensure_qa is on and QA generation yields 0 items, still write metadata_noqa; skip metadata_qa and export."""
+    from PIL import Image
+
+    rel = Path("type7/train2014/COCO_train2014_000000569667.jpg")
+    img_path = Path("metadata/tests/fixtures/images") / rel
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    if not img_path.exists():
+        Image.new("RGB", (640, 426), color=(120, 160, 200)).save(img_path, format="JPEG", quality=90)
+
+    fixture_path = Path("metadata/tests/fixtures/generated/spatial_relation_2d/dense_from_fixture.metadata.jsonl")
+    good = json.loads(fixture_path.read_text(encoding="utf-8").splitlines()[0])
+    empty_rel = json.loads(json.dumps(good))
+    empty_rel["relations"] = []
+    empty_rel["qa_items"] = []
+
+    in_jsonl = tmp_path / "mixed.metadata.jsonl"
+    in_jsonl.write_text(
+        json.dumps(empty_rel, ensure_ascii=False) + "\n" + json.dumps(good, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    out_root = tmp_path / "out"
+    ds_dir = tmp_path / "datasets" / "demo_mixed_qa"
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    (ds_dir / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                'name: "demo_mixed_qa"',
+                f'metadata_output_root: "{(out_root / "metadata").as_posix()}"',
+                f'training_output_root: "{(out_root / "training").as_posix()}"',
+                "viz:",
+                '  image_root: "metadata/tests/fixtures/images"',
+                "splits:",
+                '  - name: "train_small"',
+                '    input_type: "jsonl"',
+                "    inputs:",
+                f'      - "{in_jsonl.as_posix()}"',
+                "pipelines:",
+                "  to_metadata: false",
+                "  ensure_qa: true",
+                "  export_training: true",
+                '  qa_task_name: "spatial_relation_2d"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from openspatial_metadata.cli import main
+
+    gcfg = "metadata/tests/configs/e2e_training_pipeline/global.yaml"
+    qcfg = "metadata/tests/configs/e2e_training_pipeline/qa_tasks.yaml"
+    main(["--config-root", str(ds_dir.parent), "--global-config", gcfg, "--qa-config", qcfg, "--progress", "none"])
+
+    md_noqa = out_root / "metadata" / "demo_mixed_qa" / "train_small" / "metadata_noqa" / "mixed.metadata.jsonl"
+    md_qa = out_root / "metadata" / "demo_mixed_qa" / "train_small" / "metadata_qa" / "mixed.metadata.jsonl"
+    train_jsonl = out_root / "training" / "demo_mixed_qa" / "train_small" / "jsonl" / "part_000000.jsonl"
+
+    n_noqa = sum(1 for _ in md_noqa.read_text(encoding="utf-8").splitlines() if _.strip())
+    n_qa = sum(1 for _ in md_qa.read_text(encoding="utf-8").splitlines() if _.strip())
+    n_train = sum(1 for _ in train_jsonl.read_text(encoding="utf-8").splitlines() if _.strip())
+    assert n_noqa == 2
+    assert n_qa == 1
+    assert n_train == 1
+

@@ -370,10 +370,6 @@ def _process_jsonl_file_training_pipeline(
 
             md_noqa = MetadataV0.parse_obj(out)
 
-            # Always persist the "noqa" view when pipeline is enabled, even if
-            # the input is already metadata (to_metadata=false).
-            w_noq.write_records([md_noqa.dict()])
-
             # Step 2: ensure_qa (metadata-native QA generator)
             md_qa = md_noqa
             if enable_ensure_qa and not md_noqa.qa_items:
@@ -382,13 +378,16 @@ def _process_jsonl_file_training_pipeline(
                 payload["qa_items"] = [it.dict() for it in items]
                 md_qa = MetadataV0.parse_obj(payload)
 
+            # Always persist the noqa view (one line per input record). When qa_items is empty, skip
+            # metadata_qa and training export for that record (export still requires non-empty qa_items).
+            w_noq.write_records([md_noqa.dict()])
+
             # Persist the "qa" view only when there is at least 1 QA item.
-            # This keeps metadata_qa smaller (skip samples where QA generation yields 0 items).
             if md_qa.qa_items:
                 w_qa.write_records([md_qa.dict()])
 
-            # Step 3: export training bundle
-            if enable_export:
+            # Step 3: export training bundle (requires at least one QA item; same as metadata_qa skip)
+            if enable_export and md_qa.qa_items:
                 members, rows = build_training_members_and_rows(md_qa, image_root=image_root)
                 for (rel, data), row in zip(members, rows):
                     rel2 = disambiguate_relpath(rel, input_index=ref.input_index, existing=bw.existing_names)

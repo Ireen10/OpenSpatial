@@ -81,16 +81,16 @@
 
 - **类型**：映射（当前实现接受 dict；模型允许 extra 字段）
 - **说明**：当配置 `pipelines.ensure_qa=true` 或 `pipelines.export_training=true` 时，CLI 对 `jsonl` 输入会走“单条记录不中断”的串联执行路径（同一 worker 内）：
-  - `to_metadata`：可选。对非 metadata 输入做 adapter/meta/enrich 后写出 `metadata_noqa/`
-  - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`
+  - `to_metadata`：可选。对非 metadata 输入做 adapter/meta/enrich 后写出 `metadata_noqa/`（每条输入一行）。
+  - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`（仅当 `qa_items` 非空时写一行；为空则仍保留对应 `metadata_noqa/` 行，但不写 `metadata_qa/`、也不做训练导出）。
   - `export_training`：可选。将带 `qa_items` 的 metadata 导出为训练 bundle（`images/` + `jsonl/`）
 
 支持字段（最小集）：
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `to_metadata` | bool | `true` | 为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich），但仍会写出 `metadata_noqa/`。 |
-| `ensure_qa` | bool | `false` | 生成 `qa_items`（需要 `--qa-config` 或 `global.qa_config`）。 |
+| `to_metadata` | bool | `true` | 为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich），但仍会写出 `metadata_noqa/`（每条输入一行）。 |
+| `ensure_qa` | bool | `false` | 生成 `qa_items`（需要 `--qa-config` 或 `global.qa_config`）。`metadata_qa/` 仅在 `qa_items` 非空时追加对应行。 |
 | `export_training` | bool | `false` | 输出训练 bundle（需要 `ensure_qa` 先产出 QA，或输入本身已带 `qa_items`）。 |
 | `qa_task_name` | string | `spatial_relation_2d` | 使用的 QA 任务名（在 `qa_tasks.yaml` 中注册）。 |
 | `qa_task_overrides` | mapping | `null` | 覆盖全局 QA 任务 params 的少量字段。 |
