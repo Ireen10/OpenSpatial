@@ -16,6 +16,7 @@
   - `--output-root` 若指定，则**覆盖** global 中的 `metadata_output_root`。
   - `--resume` 为真时，与 global 中的 `resume` **逻辑或**：任一为真即按续跑处理。
   - `--num-workers` 若大于 `0`，则**覆盖** global 的 `num_workers`；若为 `0`（默认），则沿用 global 的 `num_workers`。
+  - **小批量验证**（无需手动裁输入）：`--max-records-total N` 可让整次运行（跨所有 dataset/split）最多处理 `N` 条 record；`--max-records-per-split N` 可让每个 split 最多处理 `N` 条。任一参数生效时，为保证计数确定性，CLI 会强制该 split 走顺序执行（`effective=1`），但 `tqdm` 进度仍按 record 更新。
 
 ### Dataset Config（数据集）
 
@@ -110,6 +111,8 @@
 | `module` | string，可选 | 完整 Python 模块路径；若指定则**不再**用 `file_name` 拼前缀。 |
 | `class` | string，可选 | 与 `class_name` 等价（YAML 常用 `class` 避免与关键字混淆时可写 `class_name`）。 |
 | `params` | mapping，可选 | 传入该适配器类构造函数的额外关键字（例如 `ExpressionRefreshQwenAdapter` 的 `base_url`、`model`、`timeout_s`）。若包含 `image_root` 且为相对路径，则相对于 **本数据集的 `dataset.yaml` 所在目录** 解析；省略时 CLI 会尽量使用 `viz.image_root`（与训练导出读图规则一致）。 |
+
+> **提示（LLM 刷新 adapter 的调试参数）**：`ExpressionRefreshQwenAdapter` 支持 `params.print_llm_output: true`，将模型输出（解析后的 JSON dict）直接打印到 stderr（**不落盘**）。若同时使用 `--progress tqdm`，打印行可能与进度条交错；需要更清晰的日志可用 `--progress log` 或 `none`。
 
 `module` 与 `class_name`（或 `class`）都具备时即可完成解析；仅 `file_name` + `class_name` 亦为常见写法。
 

@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-已完成 **viz 配置化 + QA/training 兼容浏览**：`openspatial-metadata-viz` 依赖 global/dataset/qa_config，并支持浏览 `metadata_noqa/metadata_qa` 与 training bundle（按 part 粒度 + 分页读取 + tarinfo 切片读图）；下一步补齐更完整的 QA 面板交互与更强的大数据体验（例如更严格的分页/索引策略）。
+已完成 **LLM 刷新链路 + 小批量验证能力**：在 grounding→LLM refresh→dedup→QA→training 的端到端上补齐可复用模板与调试/验证开关；下一步继续完善 viz 的 QA 交互与更强的大数据体验（例如更严格的分页/索引策略）。
 
 ---
 
@@ -15,6 +15,8 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-20** | **小批量验证与调试体验**：CLI 新增 `--max-records-total`（跨所有 dataset/split 总量上限）与 `--max-records-per-split`（每 split 上限），便于快速抽样验证；`ExpressionRefreshQwenAdapter` 支持 `print_llm_output` 将模型 JSON 输出直接打印到 stderr（不落盘）；文档同步更新 `config_yaml_zh.md`/`metadata/README.md` 并新增 UT 覆盖。 |
+| **2026-04-20** | **去重 adapter 接入模板**：新增 `ObjectDedupExactAdapter`（按 `bbox_xyxy_norm_1000` + `phrase` 完全一致去重并重写 queries），并将其作为推荐步骤接入 E2E-D 模板（`e2e_d_grounding_refresh_qa_training`）放在 LLM refresh 之后。 |
 | **2026-04-20** | **指代表达刷新（Qwen VL / OpenAI 兼容 API）**：`OpenAICompatibleChatClient`（`POST …/v1/chat/completions`）；`ExpressionRefreshQwenAdapter`（按 bbox 刷新 `phrase`/`category`，禁止位置词，`phrase` 为 null 时丢弃 object 并重写 queries）；`AdapterSpec.params` + CLI 传入 `dataset_config_path` 解析 `image_root`；文档与测试见 `metadata/plans/2026-04-20_1700_expression_refresh_qwen_llm/change_log.md`。 |
 | **2026-04-20** | **多 Adapter 串联**：`dataset.yaml` 支持 `adapters:` 列表（顺序串联 `convert`）；与单个 `adapter` 兼容（非空 `adapters` 优先）；`ChainedAdapter` + `adapter_specs_for_dataset`；文档 `config_yaml_zh.md`；测试 `test_adapter_chain.py`。收束见 `metadata/plans/2026-04-20_1430_multi_adapter_chain/change_log.md`。 |
 | **2026-04-20** | **Adapter 链契约（可选）**：`adapter_chain.strict_dict` + `validate_metadata_from_adapter_index`（推荐 `1`：第二段起要求 `MetadataV0`）；仅多适配器时生效。收束见 `metadata/plans/2026-04-20_1515_adapter_chain_strict_metadata/change_log.md`。 |

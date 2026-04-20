@@ -72,6 +72,12 @@ openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/d
 openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --num-workers 4
 ```
 
+小批量验证示例（整次运行最多处理 N 条 record，适合快速评估 LLM 刷新质量）：
+
+```bash
+openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --max-records-total 1000
+```
+
 ### Metadata 可视化（本地 HTTP）
 
 在对应数据集的 `dataset.yaml` 中配置 **`viz.image_root`**（解压后的图像根目录，与 `sample.image.path` 拼接）。然后：
