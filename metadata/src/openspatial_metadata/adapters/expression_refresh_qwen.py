@@ -13,11 +13,13 @@ queries are rewritten to exclude it.
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import threading
 
 from PIL import Image
 from PIL import ImageDraw
@@ -127,6 +129,27 @@ def _normalize_llm_obj(raw: Dict[str, Any]) -> Tuple[Optional[str], str]:
     return phrase, cstr
 
 
+_LLM_SEM_LOCK = threading.Lock()
+_LLM_SEM: Optional[threading.Semaphore] = None
+_LLM_SEM_N: Optional[int] = None
+
+
+def _get_global_llm_semaphore(n: int) -> threading.Semaphore:
+    """
+    Process-global semaphore to cap concurrent LLM requests across all adapter instances/workers.
+
+    The first non-trivial (n>0) value wins for this process. Subsequent calls with different n will
+    keep using the existing semaphore.
+    """
+    global _LLM_SEM, _LLM_SEM_N  # noqa: PLW0603
+    n2 = max(1, int(n))
+    with _LLM_SEM_LOCK:
+        if _LLM_SEM is None or _LLM_SEM_N is None:
+            _LLM_SEM = threading.Semaphore(n2)
+            _LLM_SEM_N = n2
+        return _LLM_SEM
+
+
 class ExpressionRefreshQwenAdapter:
     def __init__(
         self,
@@ -144,6 +167,8 @@ class ExpressionRefreshQwenAdapter:
         max_tokens: int = 512,
         on_llm_error: str = "keep",
         print_llm_output: bool = False,
+        llm_parallelism: int = 1,
+        llm_max_concurrency: int = 0,
         client: Optional[OpenAICompatibleChatClient] = None,
     ) -> None:
         self.dataset_name = dataset_name
@@ -156,6 +181,8 @@ class ExpressionRefreshQwenAdapter:
         self.max_tokens = int(max_tokens)
         self.on_llm_error = on_llm_error if on_llm_error in ("keep", "drop") else "keep"
         self.print_llm_output = bool(print_llm_output)
+        self.llm_parallelism = max(1, int(llm_parallelism))
+        self.llm_max_concurrency = int(llm_max_concurrency)
         self._client = client or OpenAICompatibleChatClient(
             base_url=base_url,
             api_key=api_key,
@@ -239,48 +266,53 @@ class ExpressionRefreshQwenAdapter:
         with Image.open(img_path) as im_f:
             base_rgb = im_f.convert("RGB").copy()
 
-        def refresh_one_object(oid: str, n: int, j: int) -> None:
+        sem = _get_global_llm_semaphore(self.llm_max_concurrency) if self.llm_max_concurrency > 0 else None
+
+        def _refresh_one_object_result(oid: str, n: int, j: int) -> Tuple[str, bool, Optional[str], str, Optional[str]]:
+            """
+            Returns: (object_id, called, phrase, category, error_detail)
+            - called: whether an LLM request was successfully made (i.e. got a JSON object back)
+            - phrase/category: normalized model output when called=True; phrase may be None
+            - error_detail: non-empty when llm_error happened
+            """
             obj = obj_by_id.get(oid)
-            if not obj or oid in drop_ids:
-                return
+            if not obj:
+                return (oid, False, None, "", "missing_object")
             bbox = obj.get("bbox_xyxy_norm_1000")
             if not isinstance(bbox, list) or len(bbox) != 4:
-                stats["errors"].append({"code": "missing_bbox", "object_id": oid})
-                return
+                return (oid, False, None, "", "missing_bbox")
+            bi = j + 1
+            ut = (
+                _user_text_single([int(x) for x in bbox], self.coord_scale)
+                if n == 1
+                else _user_text_multi(
+                    [int(x) for x in bbox],
+                    self.coord_scale,
+                    index_1based=bi,
+                    total=n,
+                )
+            )
+            data_url = _image_jpeg_data_url_with_red_box(
+                base_rgb,
+                bbox=[int(x) for x in bbox],
+                coord_scale=self.coord_scale,
+            )
             try:
-                bi = j + 1
-                ut = (
-                    _user_text_single([int(x) for x in bbox], self.coord_scale)
-                    if n == 1
-                    else _user_text_multi(
-                        [int(x) for x in bbox],
-                        self.coord_scale,
-                        index_1based=bi,
-                        total=n,
-                    )
-                )
-                data_url = _image_jpeg_data_url_with_red_box(
-                    base_rgb,
-                    bbox=[int(x) for x in bbox],
-                    coord_scale=self.coord_scale,
-                )
+                if sem is not None:
+                    sem.acquire()
                 raw = self._call_model(data_url, ut)
-                stats["n_llm_calls"] += 1
                 phrase, category = _normalize_llm_obj(raw)
-                if phrase is None:
-                    drop_ids.add(oid)
-                else:
-                    obj["phrase"] = phrase
-                    if category:
-                        obj["category"] = category
-            except Exception as exc:  # noqa: BLE001 — aggregate per-record
-                stats["errors"].append({"code": "llm_error", "object_id": oid, "detail": str(exc)})
-                if self.on_llm_error == "drop":
-                    drop_ids.add(oid)
+                return (oid, True, phrase, category, None)
+            except Exception as exc:  # noqa: BLE001
+                return (oid, False, None, "", str(exc))
+            finally:
+                if sem is not None:
+                    sem.release()
 
         visited_oids: set[str] = set()
 
-        # Visit each query's candidates in order; one LLM call per object.
+        # Build refresh tasks (deduplicate by oid, keep first context n/j).
+        tasks: List[Tuple[str, int, int]] = []
         for q in queries_in:
             if not isinstance(q, dict):
                 continue
@@ -289,14 +321,56 @@ class ExpressionRefreshQwenAdapter:
             if n == 0:
                 continue
             for j, oid in enumerate(cands):
+                if oid in visited_oids:
+                    continue
                 visited_oids.add(oid)
-                refresh_one_object(oid, n, j)
+                tasks.append((oid, n, j))
 
-        # Objects not referenced by any query (edge case): refresh as single-object prompts.
-        for oid, _obj in list(obj_by_id.items()):
+        for oid in list(obj_by_id.keys()):
             if oid in visited_oids:
                 continue
-            refresh_one_object(oid, 1, 0)
+            visited_oids.add(oid)
+            tasks.append((oid, 1, 0))
+
+        results: Dict[str, Tuple[bool, Optional[str], str, Optional[str]]] = {}
+        if tasks and self.llm_parallelism > 1:
+            mw = min(self.llm_parallelism, len(tasks))
+            with ThreadPoolExecutor(max_workers=mw) as ex:
+                futs = {ex.submit(_refresh_one_object_result, oid, n, j): oid for (oid, n, j) in tasks}
+                for fut in as_completed(list(futs.keys())):
+                    oid = futs[fut]
+                    try:
+                        (oid2, called, phrase, category, err) = fut.result()
+                        results[oid2] = (called, phrase, category, err)
+                    except Exception as exc:  # noqa: BLE001
+                        results[oid] = (False, None, "", str(exc))
+        else:
+            # Sequential fallback (default behavior).
+            for oid, n, j in tasks:
+                (oid2, called, phrase, category, err) = _refresh_one_object_result(oid, n, j)
+                results[oid2] = (called, phrase, category, err)
+
+        for oid, (called, phrase, category, err) in results.items():
+            if err == "missing_bbox":
+                stats["errors"].append({"code": "missing_bbox", "object_id": oid})
+                continue
+            if err == "missing_object":
+                continue
+            if err:
+                stats["errors"].append({"code": "llm_error", "object_id": oid, "detail": str(err)})
+                if self.on_llm_error == "drop":
+                    drop_ids.add(oid)
+                continue
+            if called:
+                stats["n_llm_calls"] += 1
+                if phrase is None:
+                    drop_ids.add(oid)
+                    continue
+                obj = obj_by_id.get(oid)
+                if obj is not None:
+                    obj["phrase"] = phrase
+                    if category:
+                        obj["category"] = category
 
         new_objects: List[Dict[str, Any]] = []
         for o in obj_list:

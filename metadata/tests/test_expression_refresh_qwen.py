@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import threading
 from typing import Any, Dict, List
 
 from openspatial_metadata.adapters.expression_refresh_qwen import ExpressionRefreshQwenAdapter
@@ -176,6 +177,80 @@ def test_multi_two_candidates_two_calls(tmp_path: Path) -> None:
     assert user_content[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert "red box" in user_content[1]["text"].lower()
     assert "unique" in user_content[1]["text"].lower()
+
+
+def test_multi_two_candidates_can_run_in_parallel_with_limit(tmp_path: Path) -> None:
+    from PIL import Image
+
+    img = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8), color=(7, 7, 7)).save(img, format="JPEG")
+
+    class _BlockingStub(OpenAICompatibleChatClient):
+        def __init__(self) -> None:
+            super().__init__(base_url="http://test/v1", api_key="", timeout_s=1.0)
+            self._lock = threading.Lock()
+            self.active = 0
+            self.max_active = 0
+            self.ready2 = threading.Event()
+            self.release = threading.Event()
+
+        def chat_completions(
+            self,
+            *,
+            model: str,
+            messages: List[Dict[str, Any]],
+            temperature: float = 0.0,
+            max_tokens: int = 512,
+            extra: Dict[str, Any] | None = None,
+        ) -> Dict[str, Any]:
+            with self._lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+                if self.active >= 2:
+                    self.ready2.set()
+            # Wait until both calls have started.
+            self.ready2.wait(timeout=2.0)
+            # Block until test releases both.
+            self.release.wait(timeout=2.0)
+            with self._lock:
+                self.active -= 1
+
+            user_text = messages[1]["content"][1]["text"]
+            # Return phrase based on bbox x1 to make mapping deterministic regardless of call order.
+            phrase = "first item" if "(x1,y1,x2,y2)=(0," in user_text else "second item"
+            payload = {"category": "x", "phrase": phrase}
+            return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+    stub = _BlockingStub()
+    ad = ExpressionRefreshQwenAdapter(
+        image_root=str(tmp_path),
+        client=stub,
+        llm_parallelism=2,
+        llm_max_concurrency=2,
+    )
+    md = _minimal_md(
+        image_path="p.jpg",
+        objects=[
+            {"object_id": "obj#0", "category": "", "phrase": "r", "bbox_xyxy_norm_1000": [0, 0, 10, 10]},
+            {"object_id": "obj#1", "category": "", "phrase": "r", "bbox_xyxy_norm_1000": [20, 20, 30, 30]},
+        ],
+        queries=[
+            {
+                "query_id": "q#0",
+                "query_text": "r",
+                "query_type": "multi_instance_grounding",
+                "candidate_object_ids": ["obj#0", "obj#1"],
+                "count": 2,
+            }
+        ],
+    )
+
+    t = threading.Thread(target=lambda: ad.convert(md), daemon=True)
+    t.start()
+    assert stub.ready2.wait(timeout=2.0)
+    stub.release.set()
+    t.join(timeout=2.0)
+    assert stub.max_active >= 2
 
 
 def test_resolve_adapter_imports_expression_refresh() -> None:
