@@ -29,6 +29,10 @@ adapters:
       # model: "qwen3-vl-32b-instruct"
       on_llm_error: keep
 
+  # Optional but recommended: de-duplicate exact (bbox + phrase) objects after LLM refresh.
+  - file_name: object_dedup_exact
+    class_name: ObjectDedupExactAdapter
+
 adapter_chain:
   strict_dict: true
   validate_metadata_from_adapter_index: 1
