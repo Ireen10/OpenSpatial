@@ -15,6 +15,7 @@ class _StubClient(OpenAICompatibleChatClient):
         super().__init__(base_url="http://test/v1", api_key="", timeout_s=1.0)
         self._responses = list(responses)
         self._i = 0
+        self.last_messages: List[Dict[str, Any]] | None = None
 
     def chat_completions(
         self,
@@ -27,6 +28,7 @@ class _StubClient(OpenAICompatibleChatClient):
     ) -> Dict[str, Any]:
         if self._i >= len(self._responses):
             raise RuntimeError("stub exhausted")
+        self.last_messages = messages
         payload = self._responses[self._i]
         self._i += 1
         text = json.dumps(payload, ensure_ascii=False)
@@ -90,6 +92,14 @@ def test_single_object_updates_phrase_and_category(tmp_path: Path) -> None:
     assert out["objects"][0]["category"] == "dog"
     assert out["queries"][0]["query_text"] == "yellow toy"
     assert out["aux"]["expression_refresh"]["n_llm_calls"] == 1
+    assert stub.last_messages is not None
+    user_content = stub.last_messages[1]["content"]
+    assert isinstance(user_content, list)
+    assert user_content[0]["type"] == "image_url"
+    assert user_content[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert user_content[1]["type"] == "text"
+    assert "red box" in user_content[1]["text"].lower()
+    assert "unique" in user_content[1]["text"].lower()
 
 
 def test_null_phrase_drops_object_and_query(tmp_path: Path) -> None:
@@ -118,6 +128,10 @@ def test_null_phrase_drops_object_and_query(tmp_path: Path) -> None:
     assert out["objects"] == []
     assert out["queries"] == []
     assert out["aux"]["expression_refresh"]["n_objects_dropped"] == 1
+    assert stub.last_messages is not None
+    user_content = stub.last_messages[1]["content"]
+    assert isinstance(user_content, list)
+    assert "red box" in user_content[1]["text"].lower()
 
 
 def test_multi_two_candidates_two_calls(tmp_path: Path) -> None:
@@ -156,6 +170,12 @@ def test_multi_two_candidates_two_calls(tmp_path: Path) -> None:
     assert out["queries"][0]["query_text"] == "first item; second item"
     assert "gold_object_id" not in out["queries"][0]
     assert out["aux"]["expression_refresh"]["n_llm_calls"] == 2
+    assert stub.last_messages is not None
+    user_content = stub.last_messages[1]["content"]
+    assert isinstance(user_content, list)
+    assert user_content[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "red box" in user_content[1]["text"].lower()
+    assert "unique" in user_content[1]["text"].lower()
 
 
 def test_resolve_adapter_imports_expression_refresh() -> None:

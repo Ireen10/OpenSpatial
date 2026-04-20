@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
+from PIL import ImageDraw
 
 from openspatial_metadata.llm.openai_compatible import OpenAICompatibleChatClient
 
@@ -37,11 +38,24 @@ def _parse_json_object_from_llm_text(text: str) -> Dict[str, Any]:
     return json.loads(t)
 
 
-def _image_jpeg_data_url(image_path: Path) -> str:
-    with Image.open(image_path) as im:
-        rgb = im.convert("RGB")
-        buf = io.BytesIO()
-        rgb.save(buf, format="JPEG", quality=92)
+def _image_jpeg_data_url_with_red_box(base_rgb: Image.Image, *, bbox: List[int], coord_scale: int) -> str:
+    """
+    Return a JPEG data URL of the image with a red rectangle drawn at bbox.
+    bbox uses normalized coordinates 0..coord_scale (same convention as metadata v0).
+    """
+    rgb = base_rgb.copy()
+    draw = ImageDraw.Draw(rgb)
+    w, h = rgb.size
+    sc = float(coord_scale) if coord_scale else 1000.0
+    x1, y1, x2, y2 = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
+    px1 = x1 / sc * w
+    py1 = y1 / sc * h
+    px2 = x2 / sc * w
+    py2 = y2 / sc * h
+    stroke = max(2, int(min(w, h) * 0.006))
+    draw.rectangle([px1, py1, px2, py2], outline=(255, 0, 0), width=stroke)
+    buf = io.BytesIO()
+    rgb.save(buf, format="JPEG", quality=92)
     b64 = base64.standard_b64encode(buf.getvalue()).decode("ascii")
     return f"data:image/jpeg;base64,{b64}"
 
@@ -50,7 +64,7 @@ _SYSTEM_PROMPT = (
     "You describe objects in images for grounding datasets. "
     "You must reply with a single JSON object only, no markdown fences, no extra text. "
     'Keys: "category" — one short English word in lowercase (the object type); '
-    '"phrase" — a short English referring expression for what is inside the given box, '
+    '"phrase" — a short English UNIQUE referring expression for what is inside the marked box, '
     "or null if a non-spatial description is impossible. "
     "Forbidden in phrase: any spatial/positional wording relative to the scene or image "
     "(e.g. left, right, top, bottom, above, below, behind, in front, corner, side, middle, "
@@ -62,8 +76,10 @@ _SYSTEM_PROMPT = (
 def _user_text_single(bbox: List[int], coord_scale: int) -> str:
     x1, y1, x2, y2 = bbox
     return (
+        "The red box in the image marks the target object. "
         f"The bounding box uses normalized coordinates 0..{coord_scale} as "
         f"(x1,y1,x2,y2)=({x1},{y1},{x2},{y2}). "
+        "Return a UNIQUE referring expression for the object inside the red box. "
         "Output JSON: {{\"category\": \"...\", \"phrase\": \"...\" or null}}."
     )
 
@@ -78,6 +94,7 @@ def _user_text_multi(
     return (
         f"This image has {total} objects from the same user query; you are describing object "
         f"{index_1based} of {total} only. "
+        "The red box in the image marks the target object. "
         f"The box uses normalized coordinates 0..{coord_scale} as "
         f"(x1,y1,x2,y2)=({x1},{y1},{x2},{y2}). "
         "Give a unique phrase for this instance. "
@@ -201,7 +218,6 @@ class ExpressionRefreshQwenAdapter:
                 obj_by_id[oid] = o
 
         drop_ids: set[str] = set()
-        data_url: Optional[str] = None
 
         if img_path is None or not img_path.is_file():
             stats["errors"].append({"code": "missing_image", "path": str(img_path) if img_path else None})
@@ -209,11 +225,8 @@ class ExpressionRefreshQwenAdapter:
             out["aux"] = aux
             return out
 
-        def ensure_data_url() -> str:
-            nonlocal data_url
-            if data_url is None:
-                data_url = _image_jpeg_data_url(img_path)
-            return data_url
+        with Image.open(img_path) as im_f:
+            base_rgb = im_f.convert("RGB").copy()
 
         def refresh_one_object(oid: str, n: int, j: int) -> None:
             obj = obj_by_id.get(oid)
@@ -235,7 +248,12 @@ class ExpressionRefreshQwenAdapter:
                         total=n,
                     )
                 )
-                raw = self._call_model(ensure_data_url(), ut)
+                data_url = _image_jpeg_data_url_with_red_box(
+                    base_rgb,
+                    bbox=[int(x) for x in bbox],
+                    coord_scale=self.coord_scale,
+                )
+                raw = self._call_model(data_url, ut)
                 stats["n_llm_calls"] += 1
                 phrase, category = _normalize_llm_obj(raw)
                 if phrase is None:
