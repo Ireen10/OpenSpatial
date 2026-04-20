@@ -9,7 +9,7 @@ This module is metadata-native:
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
@@ -50,6 +50,10 @@ AXIS_OPTIONS = {"horizontal": ("left", "right"), "vertical": ("above", "below")}
 COLOR_QUEUE_DEFAULT = ["red", "blue", "green", "pink", "yellow", "orange", "purple", "brown"]
 
 
+def _default_sub_tasks() -> Dict[str, int]:
+    return {SINGLE_AXIS: 1, FULL_SENTENCE: 1, JUDGMENT: 1}
+
+
 @dataclass(frozen=True)
 class SpatialRelation2DConfig:
     random_seed: Optional[int] = 7
@@ -60,13 +64,11 @@ class SpatialRelation2DConfig:
     axis_close_ratio_threshold: float = 0.2
     shortage_randomness: float = 0.15
     judgment_distribution: Optional[Dict[str, float]] = None
-    sub_tasks: Optional[Dict[str, int]] = None
+    sub_tasks: Dict[str, int] = field(default_factory=_default_sub_tasks)
 
     def __post_init__(self):
         if self.judgment_distribution is None:
             object.__setattr__(self, "judgment_distribution", {"incorrect": 0.5, "partial": 0.15, "correct": 0.35})
-        if self.sub_tasks is None:
-            object.__setattr__(self, "sub_tasks", {SINGLE_AXIS: 1, FULL_SENTENCE: 1, JUDGMENT: 1})
 
 
 def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelation2DConfig) -> List[AnnotationQaItemV0]:
@@ -194,7 +196,7 @@ def config_from_params(params: Dict[str, Any]) -> SpatialRelation2DConfig:
         axis_close_ratio_threshold=float(params.get("axis_close_ratio_threshold", 0.2)),
         shortage_randomness=float(params.get("shortage_randomness", 0.15)),
         judgment_distribution=dict(jd) if isinstance(jd, dict) else None,
-        sub_tasks=dict(st) if isinstance(st, dict) else None,
+        sub_tasks=dict(st) if isinstance(st, dict) else _default_sub_tasks(),
     )
 
 
