@@ -23,6 +23,25 @@ from .schema.metadata_v0 import MetadataV0
 PARALLEL_WORKERS_CAP = 32
 
 
+def _md_validate(payload: Any) -> MetadataV0:
+    """Pydantic v1/v2 compatible parse."""
+    if hasattr(MetadataV0, "model_validate"):
+        return MetadataV0.model_validate(payload)
+    return MetadataV0.parse_obj(payload)
+
+
+def _md_dump(md: MetadataV0) -> Dict[str, Any]:
+    if hasattr(md, "model_dump"):
+        return md.model_dump()
+    return md.dict()
+
+
+def _qa_item_dump(it: Any) -> Dict[str, Any]:
+    if hasattr(it, "model_dump"):
+        return it.model_dump()
+    return it.dict()
+
+
 def _metadata_output_jsonl_name(part_id: int) -> str:
     """
     Stable shard filename for metadata JSONL outputs: ``data_000000.jsonl``, …
@@ -127,9 +146,9 @@ def _apply_enrich_if_enabled(out: Dict, *, relations_2d: bool) -> Dict:
         return out
     from .enrich.relation2d import enrich_relations_2d
 
-    md = MetadataV0.parse_obj(out)
+    md = _md_validate(out)
     md2 = enrich_relations_2d(md)
-    return md2.dict()
+    return _md_dump(md2)
 
 
 def _apply_dataset_meta(out: Dict, *, ds: Any, split_name: str, dataset_path: Optional[str] = None) -> Dict:
@@ -366,6 +385,7 @@ def _process_jsonl_file_training_pipeline(
     qa_task_overrides: Optional[Dict[str, Any]],
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
+    tqdm_pos: Optional[int] = None,
 ) -> None:
     """
     One input jsonl file -> metadata_noqa / metadata_qa shards (``data_{part_id}.jsonl``).
@@ -389,43 +409,67 @@ def _process_jsonl_file_training_pipeline(
 
     checkpoint_root.mkdir(parents=True, exist_ok=True)
 
-    with JsonlWriter(noq_path, append=resume and noq_path.exists()) as w_noq, JsonlWriter(
-        qa_path, append=resume and qa_path.exists()
-    ) as w_qa:
-        for record, ref in iter_jsonl(input_path):
-            if ref.input_index < next_idx:
-                continue
+    bar = None
+    if _PROGRESS_MODE == "tqdm":
+        bar = _tqdm(
+            total=None,
+            position=tqdm_pos or 0,
+            desc=f"{ds.name}/{split_name} {input_path.name}",
+            unit="rec",
+            dynamic_ncols=True,
+            leave=False,
+        )
+        if bar is not None and next_idx > 0:
+            bar.update(next_idx)
 
-            # Step 1: to_metadata (adapter + dataset meta + enrich)
-            if enable_to_metadata:
-                out = _apply_adapter(adapter, record)
-                out.setdefault("aux", {})
-                out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-                out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-            else:
-                out = dict(record)
+    try:
+        with JsonlWriter(noq_path, append=resume and noq_path.exists()) as w_noq, JsonlWriter(
+            qa_path, append=resume and qa_path.exists()
+        ) as w_qa:
+            for record, ref in iter_jsonl(input_path):
+                if ref.input_index < next_idx:
+                    continue
 
-            md_noqa = MetadataV0.parse_obj(out)
+                # Step 1: to_metadata (adapter + dataset meta + enrich)
+                if enable_to_metadata:
+                    out = _apply_adapter(adapter, record)
+                    out.setdefault("aux", {})
+                    out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+                    out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                else:
+                    out = dict(record)
 
-            # Step 2: ensure_qa (metadata-native QA generator)
-            md_qa = md_noqa
-            if enable_ensure_qa and not md_noqa.qa_items:
-                items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                payload = md_noqa.dict()
-                payload["qa_items"] = [it.dict() for it in items]
-                md_qa = MetadataV0.parse_obj(payload)
+                md_noqa = _md_validate(out)
 
-            # Always persist the noqa view (one line per input record). When qa_items is empty, skip
-            # metadata_qa and training export for that record (export still requires non-empty qa_items).
-            w_noq.write_records([md_noqa.dict()])
+                # Step 2: ensure_qa (metadata-native QA generator)
+                md_qa = md_noqa
+                if enable_ensure_qa and not md_noqa.qa_items:
+                    items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                    payload = _md_dump(md_noqa)
+                    payload["qa_items"] = [_qa_item_dump(it) for it in items]
+                    md_qa = _md_validate(payload)
 
-            # Persist the "qa" view only when there is at least 1 QA item.
-            if md_qa.qa_items:
-                w_qa.write_records([md_qa.dict()])
+                # Always persist the noqa view (one line per input record). When qa_items is empty, skip
+                # metadata_qa and training export for that record (export still requires non-empty qa_items).
+                w_noq.write_records([_md_dump(md_noqa)])
 
-            next_idx = ref.input_index + 1
-            _write_checkpoint_atomic(ckpt_path, {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0})
+                # Persist the "qa" view only when there is at least 1 QA item.
+                if md_qa.qa_items:
+                    w_qa.write_records([_md_dump(md_qa)])
+
+                next_idx = ref.input_index + 1
+                _write_checkpoint_atomic(
+                    ckpt_path, {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0}
+                )
+
+                if bar is not None:
+                    bar.update(1)
+                elif _PROGRESS_MODE == "log" and (next_idx % 1000 == 0):
+                    _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
+    finally:
+        if bar is not None:
+            bar.close()
 
 
 def _process_jsonl_files_parallel(
@@ -695,37 +739,72 @@ def _process_jsonl_files_training_parallel(
     enable_ensure_qa: bool,
 ) -> None:
     ex = ThreadPoolExecutor(max_workers=effective)
-    futures: Dict[Any, Tuple[Path, int]] = {}
+    futures: Dict[Any, Tuple[Path, int, int]] = {}
+    slots = list(range(max(1, effective)))
+    pending = list(enumerate(files))
     try:
-        for part_id, ip in enumerate(files):
-            futures[
-                ex.submit(
-                    _process_jsonl_file_training_pipeline,
-                    ip,
-                    part_id=part_id,
-                    resume=resume,
-                    output_root=output_root,
-                    checkpoint_root=checkpoint_root,
-                    adapter_factory=adapter_factory,
-                    relations_2d=relations_2d,
-                    ds=ds,
-                    split_name=split_name,
-                    dataset_path=dataset_path,
-                    qa_registry=qa_registry,
-                    qa_task_name=qa_task_name,
-                    qa_task_overrides=qa_task_overrides,
-                    enable_to_metadata=enable_to_metadata,
-                    enable_ensure_qa=enable_ensure_qa,
-                )
-            ] = (ip, part_id)
-        for fut in as_completed(futures):
-            (ip, part_id) = futures[fut]
-            try:
-                fut.result()
-            except Exception as exc:  # noqa: BLE001
-                print(f"[openspatial-metadata] pipeline worker failed: {ds.name}/{split_name} part={part_id} file={ip}\n{exc!r}", file=sys.stderr)
-                ex.shutdown(wait=True, cancel_futures=True)
-                sys.exit(1)
+        while pending and slots:
+            slot = slots.pop(0)
+            part_id, ip = pending.pop(0)
+            fut = ex.submit(
+                _process_jsonl_file_training_pipeline,
+                ip,
+                part_id=part_id,
+                resume=resume,
+                output_root=output_root,
+                checkpoint_root=checkpoint_root,
+                adapter_factory=adapter_factory,
+                relations_2d=relations_2d,
+                ds=ds,
+                split_name=split_name,
+                dataset_path=dataset_path,
+                qa_registry=qa_registry,
+                qa_task_name=qa_task_name,
+                qa_task_overrides=qa_task_overrides,
+                enable_to_metadata=enable_to_metadata,
+                enable_ensure_qa=enable_ensure_qa,
+                tqdm_pos=slot,
+            )
+            futures[fut] = (ip, part_id, slot)
+
+        while futures:
+            for fut in as_completed(list(futures.keys())):
+                ip, part_id, slot = futures.pop(fut)
+                try:
+                    fut.result()
+                    _log(f"{ds.name}/{split_name}: done part={part_id} {ip.name}")
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"[openspatial-metadata] pipeline worker failed: {ds.name}/{split_name} part={part_id} file={ip}\n{exc!r}",
+                        file=sys.stderr,
+                    )
+                    ex.shutdown(wait=True, cancel_futures=True)
+                    sys.exit(1)
+                slots.append(slot)
+                if pending:
+                    slot2 = slots.pop(0)
+                    part_id2, ip2 = pending.pop(0)
+                    nfut = ex.submit(
+                        _process_jsonl_file_training_pipeline,
+                        ip2,
+                        part_id=part_id2,
+                        resume=resume,
+                        output_root=output_root,
+                        checkpoint_root=checkpoint_root,
+                        adapter_factory=adapter_factory,
+                        relations_2d=relations_2d,
+                        ds=ds,
+                        split_name=split_name,
+                        dataset_path=dataset_path,
+                        qa_registry=qa_registry,
+                        qa_task_name=qa_task_name,
+                        qa_task_overrides=qa_task_overrides,
+                        enable_to_metadata=enable_to_metadata,
+                        enable_ensure_qa=enable_ensure_qa,
+                        tqdm_pos=slot2,
+                    )
+                    futures[nfut] = (ip2, part_id2, slot2)
+                break
     finally:
         ex.shutdown(wait=True, cancel_futures=False)
 
@@ -851,6 +930,7 @@ def main(argv=None) -> None:
                                 qa_task_overrides=qa_task_overrides,
                                 enable_to_metadata=enable_to_metadata,
                                 enable_ensure_qa=enable_ensure_qa,
+                                tqdm_pos=0,
                             )
                             _log(f"{ds.name}/{split.name}: done {ip.name}")
                     _finalize_training_export_for_split(
