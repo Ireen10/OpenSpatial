@@ -350,7 +350,10 @@
       $("line-input").value = String(state.line);
       $("line-status").textContent = `line ${state.line + 1} / ${state.line_count}`;
       const rec = state.record;
-      const ds = (rec.dataset && rec.dataset.name) || "";
+      // Derive dataset from selected file path to avoid cross-dataset mismatches when
+      // records contain an unexpected dataset.name.
+      const dsFromPath = String((state.path || "").split("/")[0] || "");
+      const ds = dsFromPath || ((rec.dataset && rec.dataset.name) || "");
       const sid = (rec.sample && rec.sample.sample_id) || "";
       $("hdr-meta").textContent = `${ds} · ${sid}`;
       const ip = rec.sample && rec.sample.image && rec.sample.image.path;
