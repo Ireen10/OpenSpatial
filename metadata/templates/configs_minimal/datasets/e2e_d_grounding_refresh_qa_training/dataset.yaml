@@ -20,7 +20,9 @@ adapters:
     class_name: GroundingQAAdapter
 
   # Optional: de-duplicate identical bboxes BEFORE LLM refresh (prevents forcing distinct phrases for identical regions).
-  # - file_name: object_dedup_exact_pre
+  # Note: `file_name` must match a real module under `openspatial_metadata/adapters/`.
+  # Reuse `object_dedup_exact` with `key_mode: bbox` for this pre-refresh step.
+  # - file_name: object_dedup_exact
   #   class_name: ObjectDedupExactAdapter
   #   params:
   #     key_mode: bbox
