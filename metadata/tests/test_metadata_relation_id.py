@@ -12,13 +12,22 @@ from openspatial_metadata.schema.metadata_v0 import MetadataV0
 
 class TestMetadataRelationId(unittest.TestCase):
     def test_parse_assigns_relation_ids_to_existing_records(self):
-        sample_path = (
+        base = (
             Path(__file__).resolve().parent
             / ".tmp_refcoco_out"
             / "refcoco_grounding_aug_en_250618"
             / "train_small"
-            / "sample_small.metadata.jsonl"
         )
+        sample_path = None
+        for name in ("data_000000.jsonl", "sample_small.metadata.jsonl"):
+            p = base / name
+            if p.is_file():
+                sample_path = p
+                break
+        if sample_path is None:
+            self.skipTest(
+                "optional cached CLI output missing; run refcoco E2E once to populate .tmp_refcoco_out"
+            )
         record = json.loads(sample_path.read_text(encoding="utf-8").strip().splitlines()[0])
         metadata = MetadataV0.model_validate(record)
 

@@ -38,8 +38,10 @@
 | `resume` | bool | `false` | 为 `true` 时启用 checkpoint **续跑**（与 CLI `--resume` 合并为「任一为真即续跑」）。 |
 | `strict` | bool | `true` | **遇错即停**（本轮仅支持 `true`）：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。CLI **不提供** `strict=False`。 |
 | `qa_config` | string, 可选 | `null` | 全局 QA 任务注册表 YAML 路径（例如 `metadata/templates/configs_minimal/qa_tasks.yaml`）。可被 CLI `--qa-config` 覆盖。仅在启用 dataset `pipelines.ensure_qa` / `pipelines.export_training` 路径时需要。 |
+| `training_rows_per_part` | int | `1024` | **仅训练导出**：从 `metadata_qa/data_*.jsonl` 汇总训练行后，每个 bundle（`images/data_*.tar` 等）内 **JSONL 行数** 目标上限；必须能被 `training_row_align` 整除。 |
+| `training_row_align` | int | `16` | **仅训练导出**：每个 bundle 内最终写入行数会向下对齐为该值的倍数；末段不足时在行尾丢弃余数（stderr 有提示）。测试或小样本可设为 `1`。 |
 
-允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。
+允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。`pipelines` 中可设同名键以覆盖上述两字段（仅当 `export_training` 为真时生效）。
 
 ---
 
@@ -143,15 +145,15 @@
   `raw = cli_n if cli_n > 0 else g_n`，再 `effective = min(raw, F, 32)`（硬顶 `32` 防止过量线程）。  
   若 `effective <= 1`，该 split **整段走顺序逻辑**（与旧行为一致）。
 - **`jsonl`**：`effective > 1` 时，**每个输入文件**一个任务，仍各自 **1:1** 输出与**按文件**的 checkpoint（与顺序模式语义一致，仅调度并发不同）。
-- **`json_files`**：`effective > 1` 时，worker 仅负责**读入单文件 JSON** 并构造 `aux.record_ref`；**主线程**负责攒 `batch_size`、写 `part-*.jsonl`，且 **仅在 flush 成功之后** 对本批涉及的源文件写入 `done` checkpoint。**输出行序不保证**与 YAML 中 `inputs` 列表一致，但每行的 `aux.record_ref.input_file` 可追溯到真实路径。
+- **`json_files`**：`effective > 1` 时，worker 仅负责**读入单文件 JSON** 并构造 `aux.record_ref`；**主线程**负责攒 `batch_size`、写 `data_{序号:06d}.jsonl`，且 **仅在 flush 成功之后** 对本批涉及的源文件写入 `done` checkpoint。**输出行序不保证**与 YAML 中 `inputs` 列表一致，但每行的 `aux.record_ref.input_file` 可追溯到真实路径。
 - **失败与收尾**：任一线程任务失败 → `shutdown(wait=True, cancel_futures=True)` → stderr 含输入路径与异常 → **进程退出码 1**。`json_files` 并行路径在退出前若内存中仍有未满批的已读记录，会先 **flush + checkpoint** 再退出，避免已成功的 worker 结果丢失。
 
 ---
 
 ## `input_type` 与输出布局（当前 CLI 行为摘要）
 
-- **`jsonl`**：对每个展开后的输入文件 **1:1** 生成 `{输入文件主名}.out.jsonl`，写在 `{output_root}/{dataset}/{split}/` 下。Checkpoint 记录 `next_input_index`（按行）。  
-- **`json_files`**：将多个单文件 JSON 聚合为 `part-000000.jsonl` 等；每个输入文件在 **对应记录已成功写入某 part 且 flush 完成后** checkpoint 标记 `done`（顺序与并行路径一致）。
+- **`jsonl`**：对每个展开后的输入文件按 **`inputs` 列表顺序**编号 `0…N-1`，写出 **`data_{:06d}.jsonl`**（与输入路径主名无关），写在 `{output_root}/{dataset}/{split}/` 下；若启用 `pipelines` 且写出 `metadata_noqa` / `metadata_qa`，亦为同名 `data_{:06d}.jsonl` 分片。Checkpoint 仍按**源输入文件路径**的哈希命名，内容记录 `next_input_index`（按行）。  
+- **`json_files`**：将多个单文件 JSON 聚合为 `data_000000.jsonl` 等；每个输入文件在 **对应记录已成功写入某分片且 flush 完成后** checkpoint 标记 `done`（顺序与并行路径一致）。
 
 ---
 

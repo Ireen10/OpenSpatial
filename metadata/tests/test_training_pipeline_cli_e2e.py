@@ -60,13 +60,13 @@ def test_training_pipeline_cli_e2e(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # Validate outputs exist.
     md_noqa = out_root / "metadata" / "demo_metadata_to_training" / "train_small" / "metadata_noqa"
     md_qa = out_root / "metadata" / "demo_metadata_to_training" / "train_small" / "metadata_qa"
-    assert (md_noqa / "dense_from_fixture.metadata.jsonl").is_file()
-    assert (md_qa / "dense_from_fixture.metadata.jsonl").is_file()
+    assert (md_noqa / "data_000000.jsonl").is_file()
+    assert (md_qa / "data_000000.jsonl").is_file()
 
     train_root = out_root / "training"
-    tar = train_root / "demo_metadata_to_training" / "train_small" / "images" / "part_000000.tar"
-    tarinfo = train_root / "demo_metadata_to_training" / "train_small" / "images" / "part_000000_tarinfo.json"
-    jsonl = train_root / "demo_metadata_to_training" / "train_small" / "jsonl" / "part_000000.jsonl"
+    tar = train_root / "demo_metadata_to_training" / "train_small" / "images" / "data_000000.tar"
+    tarinfo = train_root / "demo_metadata_to_training" / "train_small" / "images" / "data_000000_tarinfo.json"
+    jsonl = train_root / "demo_metadata_to_training" / "train_small" / "jsonl" / "data_000000.jsonl"
     assert tar.is_file()
     assert tarinfo.is_file()
     assert jsonl.is_file()
@@ -136,9 +136,9 @@ def test_training_pipeline_writes_noqa_when_ensure_qa_produces_no_items(tmp_path
     qcfg = "metadata/tests/configs/e2e_training_pipeline/qa_tasks.yaml"
     main(["--config-root", str(ds_dir.parent), "--global-config", gcfg, "--qa-config", qcfg, "--progress", "none"])
 
-    md_noqa = out_root / "metadata" / "demo_mixed_qa" / "train_small" / "metadata_noqa" / "mixed.metadata.jsonl"
-    md_qa = out_root / "metadata" / "demo_mixed_qa" / "train_small" / "metadata_qa" / "mixed.metadata.jsonl"
-    train_jsonl = out_root / "training" / "demo_mixed_qa" / "train_small" / "jsonl" / "part_000000.jsonl"
+    md_noqa = out_root / "metadata" / "demo_mixed_qa" / "train_small" / "metadata_noqa" / "data_000000.jsonl"
+    md_qa = out_root / "metadata" / "demo_mixed_qa" / "train_small" / "metadata_qa" / "data_000000.jsonl"
+    train_jsonl = out_root / "training" / "demo_mixed_qa" / "train_small" / "jsonl" / "data_000000.jsonl"
 
     n_noqa = sum(1 for _ in md_noqa.read_text(encoding="utf-8").splitlines() if _.strip())
     n_qa = sum(1 for _ in md_qa.read_text(encoding="utf-8").splitlines() if _.strip())
@@ -146,4 +146,75 @@ def test_training_pipeline_writes_noqa_when_ensure_qa_produces_no_items(tmp_path
     assert n_noqa == 2
     assert n_qa == 1
     assert n_train == 1
+
+
+@pytest.mark.e2e
+def test_training_pipeline_multi_bundle_from_duplicated_jsonl(tmp_path: Path) -> None:
+    """
+    Same spatial_relation_2d line repeated N times -> N training rows (one visual group per record).
+    With training_rows_per_part: 1, export_training emits N bundles: data_000000 .. data_{N-1}.
+    """
+    from PIL import Image
+
+    rel = Path("type7/train2014/COCO_train2014_000000569667.jpg")
+    img_path = Path("metadata/tests/fixtures/images") / rel
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    if not img_path.exists():
+        Image.new("RGB", (640, 426), color=(120, 160, 200)).save(img_path, format="JPEG", quality=90)
+
+    fixture_path = Path("metadata/tests/fixtures/generated/spatial_relation_2d/dense_from_fixture.metadata.jsonl")
+    line = fixture_path.read_text(encoding="utf-8").splitlines()[0]
+    n = 4
+    in_jsonl = tmp_path / "dense_x4.metadata.jsonl"
+    in_jsonl.write_text("\n".join([line] * n) + "\n", encoding="utf-8")
+
+    out_root = tmp_path / "out"
+    ds_dir = tmp_path / "datasets" / "demo_multi_bundle"
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    (ds_dir / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                'name: "demo_multi_bundle"',
+                f'metadata_output_root: "{(out_root / "metadata").as_posix()}"',
+                f'training_output_root: "{(out_root / "training").as_posix()}"',
+                "viz:",
+                '  image_root: "metadata/tests/fixtures/images"',
+                "splits:",
+                '  - name: "train_small"',
+                '    input_type: "jsonl"',
+                "    inputs:",
+                f'      - "{in_jsonl.as_posix()}"',
+                "pipelines:",
+                "  to_metadata: false",
+                "  ensure_qa: true",
+                "  export_training: true",
+                '  qa_task_name: "spatial_relation_2d"',
+                "  training_rows_per_part: 1",
+                "  training_row_align: 1",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from openspatial_metadata.cli import main
+
+    gcfg = "metadata/tests/configs/e2e_training_pipeline/global.yaml"
+    qcfg = "metadata/tests/configs/e2e_training_pipeline/qa_tasks.yaml"
+    main(["--config-root", str(ds_dir.parent), "--global-config", gcfg, "--qa-config", qcfg, "--progress", "none"])
+
+    train_base = out_root / "training" / "demo_multi_bundle" / "train_small"
+    jl_dir = train_base / "jsonl"
+    img_dir = train_base / "images"
+    expected = [f"data_{i:06d}.jsonl" for i in range(n)]
+    assert sorted(p.name for p in jl_dir.glob("data_*.jsonl")) == expected
+    assert sorted(p.name for p in img_dir.glob("data_*.tar")) == [f"data_{i:06d}.tar" for i in range(n)]
+    assert sorted(p.name for p in img_dir.glob("data_*_tarinfo.json")) == [
+        f"data_{i:06d}_tarinfo.json" for i in range(n)
+    ]
+
+    total_lines = 0
+    for name in expected:
+        total_lines += sum(1 for _ in (jl_dir / name).read_text(encoding="utf-8").splitlines() if _.strip())
+    assert total_lines == n
 

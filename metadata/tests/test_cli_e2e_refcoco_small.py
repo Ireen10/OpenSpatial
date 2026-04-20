@@ -58,7 +58,7 @@ class TestCliE2ERefcocoSmall(unittest.TestCase):
                 out_root
                 / "refcoco_grounding_aug_en_250618"
                 / "train_small"
-                / "sample_small.metadata.jsonl"
+                / "data_000000.jsonl"
             )
             self.assertTrue(out_path.is_file(), msg=f"missing {out_path}")
             lines = out_path.read_text(encoding="utf-8").strip().splitlines()

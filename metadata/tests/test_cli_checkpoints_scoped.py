@@ -58,7 +58,7 @@ class TestCliCheckpointsScoped(unittest.TestCase):
         ]
         main(args)
 
-        out_file = out_root / "demo_dataset" / "train_jsonl" / "jsonl_shard_small.metadata.jsonl"
+        out_file = out_root / "demo_dataset" / "train_jsonl" / "data_000000.jsonl"
         self.assertTrue(out_file.exists())
         lines = out_file.read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(len(lines), 5)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from PIL import Image
 
@@ -39,16 +39,21 @@ def export_metadata_to_training_bundle(
     *,
     image_root: Union[str, Path],
     output_root: Union[str, Path],
+    bundle_id: int = 0,
     part_id: int = 0,
 ) -> Dict[str, Path]:
     """
-    Write ``{output_root}/images/part_{part_id:06d}.tar``,
-    ``{output_root}/images/part_{part_id:06d}_tarinfo.json``,
-    ``{output_root}/jsonl/part_{part_id:06d}.jsonl``.
+    Write ``{output_root}/images/data_{bundle_id:06d}.tar``,
+    ``{output_root}/images/data_{bundle_id:06d}_tarinfo.json``,
+    ``{output_root}/jsonl/data_{bundle_id:06d}.jsonl``.
+
+    ``part_id`` is deprecated; use ``bundle_id`` (same meaning).
 
     Requires non-empty ``md.qa_items`` and a readable RGB image at
     ``image_root / sample.image.path`` (unless path is absolute).
     """
+    if part_id != 0 and bundle_id == 0:
+        bundle_id = part_id
     if not md.qa_items:
         raise ValueError("metadata.qa_items is empty; populate QA before export")
 
@@ -90,21 +95,19 @@ def export_metadata_to_training_bundle(
             )
         )
 
-    images_dir = out / "images"
-    jsonl_dir = out / "jsonl"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_dir.mkdir(parents=True, exist_ok=True)
+    from openspatial_metadata.export.stream import bundle_paths
 
-    tar_path = images_dir / f"part_{part_id:06d}.tar"
+    bp = bundle_paths(out, bundle_id)
+    tar_path = bp.tar_path
     index = write_tar_and_tarinfo(tar_path, members)
-    write_tarinfo_json(images_dir / f"part_{part_id:06d}_tarinfo.json", index)
+    write_tarinfo_json(bp.tarinfo_path, index)
 
-    jsonl_path = jsonl_dir / f"part_{part_id:06d}.jsonl"
+    jsonl_path = bp.jsonl_path
     with jsonl_path.open("w", encoding="utf-8") as f:
         for row in lines:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    return {"tar": tar_path, "tarinfo": images_dir / f"part_{part_id:06d}_tarinfo.json", "jsonl": jsonl_path}
+    return {"tar": tar_path, "tarinfo": bp.tarinfo_path, "jsonl": jsonl_path}
 
 
 def build_training_members_and_rows(

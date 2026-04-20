@@ -12,14 +12,14 @@
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
 - I/O：`io/json.py`；占位适配器：`adapters/passthrough.py`；归一化：`utils/normalize.py`。
 - **2D 关系增强（`image_plane`）**：`enrich.enrich_relations_2d` 在 **`MetadataV0` 副本**上根据框/点代表点计算 `relations`（单原子或 `components` 复合），与 adapter 解耦；详见 `metadata/plans/2026-04-15_1658_metadata_next/design.md`。
-- **训练导出（首版）**：`openspatial_metadata.export.export_metadata_to_training_bundle` 从带 `qa_items` 的 `MetadataV0` 写出 `images/part_*.tar`、`part_*_tarinfo.json` 与 `jsonl/part_*.jsonl`（见 `metadata/docs/training_data_format_zh.md`）。
+- **训练导出**：CLI 在写出 `metadata_qa/data_*.jsonl` 后按全局/数据集配置将训练行打包为 `images/data_*.tar`、`data_*_tarinfo.json` 与 `jsonl/data_*.jsonl`（`training_rows_per_part` / `training_row_align`）；库函数 `export_metadata_to_training_bundle` 仍可用于单条 `MetadataV0` 写出单套 `data_{id}.*`（见 `metadata/docs/training_data_format_zh.md`）。
 
 **仍为占位 / 未接入 CLI（与 `plans/`、wiki 文档对齐的后续工作）：**
 
 - OpenSpatial Parquet 行 ↔ metadata 的专用转换、metadata / annotation 的 Parquet 导出（`pyarrow`）。
 - **3D** 关系 enrich。
 
-**可视化（v0 已实现）：** `openspatial-metadata-viz` 浏览 `{output_root}/{dataset}/{split}/*.metadata.jsonl`，图像路径为 `dataset.yaml` 中可选的 **`viz.image_root`** + `sample.image.path`（扁平目录，见各数据集 README）。设计见 `metadata/plans/2026-04-15_2240_metadata_visualization/design.md`。
+**可视化（v0 已实现）：** `openspatial-metadata-viz` 浏览 `{output_root}/{dataset}/{split}/` 下的 **`data_*.jsonl`**（或旧版 `*.metadata.jsonl`），图像路径为 `dataset.yaml` 中可选的 **`viz.image_root`** + `sample.image.path`（扁平目录，见各数据集 README）。设计见 `metadata/plans/2026-04-15_2240_metadata_visualization/design.md`。
 
 **库用法（2D enrich）**（在已 `pip install -e ./metadata` 的环境中）：
 

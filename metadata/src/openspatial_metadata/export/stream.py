@@ -19,7 +19,8 @@ class TrainingBundlePaths:
     jsonl_path: Path
 
 
-def bundle_paths(output_root: Path, part_id: int) -> TrainingBundlePaths:
+def bundle_paths(output_root: Path, bundle_id: int) -> TrainingBundlePaths:
+    """Training bundle files: ``data_{bundle_id:06d}.tar`` (+ tarinfo, jsonl)."""
     images_dir = output_root / "images"
     jsonl_dir = output_root / "jsonl"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -27,9 +28,9 @@ def bundle_paths(output_root: Path, part_id: int) -> TrainingBundlePaths:
     return TrainingBundlePaths(
         images_dir=images_dir,
         jsonl_dir=jsonl_dir,
-        tar_path=images_dir / f"part_{part_id:06d}.tar",
-        tarinfo_path=images_dir / f"part_{part_id:06d}_tarinfo.json",
-        jsonl_path=jsonl_dir / f"part_{part_id:06d}.jsonl",
+        tar_path=images_dir / f"data_{bundle_id:06d}.tar",
+        tarinfo_path=images_dir / f"data_{bundle_id:06d}_tarinfo.json",
+        jsonl_path=jsonl_dir / f"data_{bundle_id:06d}.jsonl",
     )
 
 

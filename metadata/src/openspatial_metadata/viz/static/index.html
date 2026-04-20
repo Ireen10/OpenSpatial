@@ -388,7 +388,7 @@
       tr.idx = 0;
       $("line-input").value = String(tr.offset);
       $("line-status").textContent = `offset ${tr.offset} · ${tr.records.length} recs · total ${tr.line_count}`;
-      $("hdr-meta").textContent = `${tr.dataset} · ${tr.split} · part_${String(tr.part).padStart(6,"0")}`;
+      $("hdr-meta").textContent = `${tr.dataset} · ${tr.split} · data_${String(tr.part).padStart(6,"0")}`;
       renderTraining();
     }
 
@@ -476,7 +476,7 @@
           const b = document.createElement("button");
           b.type = "button";
           b.className = "file";
-          b.textContent = `part_${String(p.part_id).padStart(6,"0")}`;
+          b.textContent = `data_${String(p.part_id).padStart(6,"0")}`;
           b.onclick = () => {
             document.querySelectorAll("aside button.file").forEach((x) => x.classList.remove("active"));
             b.classList.add("active");

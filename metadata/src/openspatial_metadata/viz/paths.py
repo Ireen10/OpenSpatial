@@ -31,10 +31,23 @@ def safe_file_under_root(candidate: Path, root: Path) -> Optional[Path]:
     return cand
 
 
+_METADATA_JSONL_LEGACY_SUFFIX = ".metadata.jsonl"
+_DATA_JSONL_RE = re.compile(r"^data_\d{6}\.jsonl$")
+
+
+def _is_metadata_stage_jsonl_filename(fn: str) -> bool:
+    """CLI metadata shards: ``data_000000.jsonl`` or legacy ``*.metadata.jsonl``."""
+    if fn.endswith(_METADATA_JSONL_LEGACY_SUFFIX):
+        return True
+    return bool(_DATA_JSONL_RE.match(fn))
+
+
 def enumerate_metadata_jsonl(output_root: Path) -> List[Dict[str, Any]]:
     """
-    List ``*.metadata.jsonl`` under ``output_root/{dataset}/{split}/...`` (recursive),
+    List metadata JSONL shards under ``output_root/{dataset}/{split}/...`` (recursive),
     excluding ``.checkpoints`` directories.
+
+    Filenames: ``data_{:06d}.jsonl`` (current CLI) or legacy ``*.metadata.jsonl``.
 
     Emits stage as:
     - ``metadata_noqa`` / ``metadata_qa`` when the 3rd path component matches
@@ -58,7 +71,7 @@ def enumerate_metadata_jsonl(output_root: Path) -> List[Dict[str, Any]]:
         if len(parts) >= 3 and parts[2] in ("metadata_noqa", "metadata_qa"):
             stage = parts[2]
         for fn in sorted(filenames):
-            if not fn.endswith(".metadata.jsonl"):
+            if not _is_metadata_stage_jsonl_filename(fn):
                 continue
             full = Path(dirpath) / fn
             rel = full.resolve().relative_to(root)
@@ -76,13 +89,10 @@ def enumerate_metadata_jsonl(output_root: Path) -> List[Dict[str, Any]]:
     return out
 
 
-_PART_RE = re.compile(r"^part_(\d{6})\.(jsonl|tar)$")
-
-
 def enumerate_training_parts(training_root: Path) -> List[Dict[str, Any]]:
     """
     Enumerate training bundles under:
-      {training_root}/{dataset}/{split}/{images,jsonl}/part_{id:06d}.*
+      {training_root}/{dataset}/{split}/{images,jsonl}/data_{id:06d}.*
 
     Returns entries with keys: dataset, split, part_id, jsonl_rel, tar_rel, tarinfo_rel.
 
@@ -100,13 +110,13 @@ def enumerate_training_parts(training_root: Path) -> List[Dict[str, Any]]:
             if not images_dir.is_dir() or not jsonl_dir.is_dir():
                 continue
             # list jsonl parts; require corresponding tar and tarinfo
-            for jp in sorted(jsonl_dir.glob("part_*.jsonl")):
-                m = re.match(r"^part_(\d{6})\.jsonl$", jp.name)
+            for jp in sorted(jsonl_dir.glob("data_*.jsonl")):
+                m = re.match(r"^data_(\d{6})\.jsonl$", jp.name)
                 if not m:
                     continue
                 pid = int(m.group(1))
-                tp = images_dir / f"part_{pid:06d}.tar"
-                tip = images_dir / f"part_{pid:06d}_tarinfo.json"
+                tp = images_dir / f"data_{pid:06d}.tar"
+                tip = images_dir / f"data_{pid:06d}_tarinfo.json"
                 if not tp.is_file() or not tip.is_file():
                     continue
                 out.append(

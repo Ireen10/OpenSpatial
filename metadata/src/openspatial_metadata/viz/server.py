@@ -214,7 +214,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 if tr is None:
                     _send_json(self, {"error": "training_output_root not set for dataset", "dataset": dataset_name}, 404)
                     return
-                jsonl_path = (tr / dataset_name / split_name / "jsonl" / f"part_{part_id:06d}.jsonl").resolve()
+                jsonl_path = (tr / dataset_name / split_name / "jsonl" / f"data_{part_id:06d}.jsonl").resolve()
                 if not is_under_root(jsonl_path, tr):
                     _send_json(self, {"error": "path outside training_root"}, 403)
                     return
@@ -253,8 +253,8 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 if tr is None:
                     _send_json(self, {"error": "training_output_root not set for dataset", "dataset": dataset_name}, 404)
                     return
-                tar_path = (tr / dataset_name / split_name / "images" / f"part_{part_id:06d}.tar").resolve()
-                tarinfo_path = (tr / dataset_name / split_name / "images" / f"part_{part_id:06d}_tarinfo.json").resolve()
+                tar_path = (tr / dataset_name / split_name / "images" / f"data_{part_id:06d}.tar").resolve()
+                tarinfo_path = (tr / dataset_name / split_name / "images" / f"data_{part_id:06d}_tarinfo.json").resolve()
                 if not is_under_root(tar_path, tr) or not is_under_root(tarinfo_path, tr):
                     _send_json(self, {"error": "path outside training_root"}, 403)
                     return

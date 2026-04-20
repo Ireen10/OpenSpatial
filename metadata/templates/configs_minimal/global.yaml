@@ -43,3 +43,7 @@ strict: true
 # Can be overridden by CLI --qa-config.
 qa_config: metadata/templates/configs_minimal/qa_tasks.yaml
 
+# Training bundle packing (after metadata_qa is written). rows_per_part must be a multiple of row_align.
+training_rows_per_part: 1024
+training_row_align: 16
+

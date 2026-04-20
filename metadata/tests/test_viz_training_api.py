@@ -9,9 +9,9 @@ def test_viz_training_tar_slice_read() -> None:
     Verify we can read a training image from tar without extraction,
     using tarinfo offset_data/size.
     """
-    tar = Path("metadata/tests/.tmp_pipeline_out/training/demo_metadata_to_training/train_small/images/part_000000.tar")
+    tar = Path("metadata/tests/.tmp_pipeline_out/training/demo_metadata_to_training/train_small/images/data_000000.tar")
     tarinfo = Path(
-        "metadata/tests/.tmp_pipeline_out/training/demo_metadata_to_training/train_small/images/part_000000_tarinfo.json"
+        "metadata/tests/.tmp_pipeline_out/training/demo_metadata_to_training/train_small/images/data_000000_tarinfo.json"
     )
     # This test is optional when artifacts don't exist; skip if user didn't run pipeline.
     if not tar.is_file() or not tarinfo.is_file():

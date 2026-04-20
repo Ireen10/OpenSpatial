@@ -68,8 +68,8 @@ class TestCliDatasetOutputRoot(unittest.TestCase):
 
             main(["--config-root", str(cfg_root), "--global-config", str(g)])
 
-            a_file = out_a / "dsa" / "s" / "jsonl_shard_small.metadata.jsonl"
-            b_file = out_b / "dsb" / "s" / "jsonl_shard_small.metadata.jsonl"
+            a_file = out_a / "dsa" / "s" / "data_000000.jsonl"
+            b_file = out_b / "dsb" / "s" / "data_000000.jsonl"
             self.assertTrue(a_file.is_file(), msg=f"missing {a_file}")
             self.assertTrue(b_file.is_file(), msg=f"missing {b_file}")
 

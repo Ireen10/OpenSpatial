@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--output-root",
         default=None,
-        help="Root directory containing {dataset}/{split}/*.metadata.jsonl (default: global metadata_output_root).",
+        help="Root directory containing {dataset}/{split}/data_*.jsonl (or legacy *.metadata.jsonl) (default: global metadata_output_root).",
     )
     p.add_argument(
         "--config-root",

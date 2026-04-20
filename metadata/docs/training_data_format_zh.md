@@ -10,14 +10,14 @@
 
 ## 目录布局
 
-导出训练包时，**端到端验收**应至少包含以下目录与文件（本阶段可先只产 **一个 part**，`id=0` 即 `part_000000.*`；多 part 分片策略见实现计划，不要求本阶段做复杂切分）：
+导出训练包时，**端到端验收**应至少包含以下目录与文件。CLI 在写完 `metadata_qa/data_*.jsonl` 后按 `training_rows_per_part` / `training_row_align` 将训练行打包为多个 **bundle**（`id=0` 即 `data_000000.*`）。
 
 - `root/`
   - `images/`
-    - `part_{id:06d}.tar` — 图像按 **tar 内相对路径** 存放（JSONL 里 `image.relative_path` 与此一致）
-    - `part_{id:06d}_tarinfo.json` — 与上述 tar **同 id、同一次写出**，便于按 offset 随机读图（见下）
+    - `data_{id:06d}.tar` — 图像按 **tar 内相对路径** 存放（JSONL 里 `image.relative_path` 与此一致）
+    - `data_{id:06d}_tarinfo.json` — 与上述 tar **同 id、同一次写出**，便于按 offset 随机读图（见下）
   - `jsonl/`
-    - `part_{id:06d}.jsonl` — 与 `images` 使用 **相同 id**，便于分片对齐
+    - `data_{id:06d}.jsonl` — 与 `images` 使用 **相同 id**，便于分片对齐
 
 ### `*_tarinfo.json` 结构
 

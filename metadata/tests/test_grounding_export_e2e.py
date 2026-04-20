@@ -1,4 +1,4 @@
-"""E2E: metadata + qa_items → images/part_*.tar, tarinfo, jsonl/part_*.jsonl."""
+"""E2E: metadata + qa_items → images/data_*.tar, tarinfo, jsonl/data_*.jsonl."""
 
 from __future__ import annotations
 

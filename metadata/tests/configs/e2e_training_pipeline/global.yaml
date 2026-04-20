@@ -4,4 +4,7 @@ num_workers: 0
 resume: true
 strict: true
 qa_config: "metadata/tests/configs/e2e_training_pipeline/qa_tasks.yaml"
+# Small E2E fixtures: allow any row count in the final bundle (align=1).
+training_rows_per_part: 1024
+training_row_align: 1
 

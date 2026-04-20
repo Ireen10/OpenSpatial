@@ -63,4 +63,7 @@ class GlobalConfig(BaseModel):
     resume: bool = False
     strict: bool = True
     qa_config: Optional[str] = None
+    # Training bundle packing (CLI export_training phase only; metadata unaffected).
+    training_rows_per_part: int = 1024
+    training_row_align: int = 16
 

@@ -53,7 +53,7 @@ def test_viz_server_tree_record_image(tmp_path: Path) -> None:
         "relations": [],
         "aux": {},
     }
-    meta_file = meta_dir / "sample_small.metadata.jsonl"
+    meta_file = meta_dir / "data_000000.jsonl"
     meta_file.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
 
     cfg_dir = tmp_path / "configs" / "datasets" / "refcoco_grounding_aug_en_250618"
