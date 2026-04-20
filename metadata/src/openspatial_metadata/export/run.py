@@ -66,6 +66,7 @@ def export_metadata_to_training_bundle(
         pil = im_f.convert("RGB").copy()
     width, height = pil.size
     obj_map = _objects_by_id(md)
+    coord_scale = int(getattr(md.sample.image, "coord_scale", 1000) or 1000)
 
     groups = group_qa_items(md.qa_items)
     members: List[tuple] = []
@@ -77,7 +78,7 @@ def export_metadata_to_training_bundle(
 
     for group in groups:
         meta0 = dict(group[0].meta or {})
-        jpeg = render_group_image_jpeg(pil, meta0, obj_map)
+        jpeg = render_group_image_jpeg(pil, meta0, obj_map, coord_scale=float(coord_scale))
         vk = visual_group_key(meta0)
         rel = training_image_relpath(
             base_image_rel=base_rel,
@@ -127,6 +128,7 @@ def build_training_members_and_rows(
         pil = im_f.convert("RGB").copy()
     width, height = pil.size
     obj_map = _objects_by_id(md)
+    coord_scale = int(getattr(md.sample.image, "coord_scale", 1000) or 1000)
 
     groups = group_qa_items(md.qa_items)
     members: List[Tuple[str, bytes]] = []
@@ -138,7 +140,7 @@ def build_training_members_and_rows(
 
     for group in groups:
         meta0 = dict(group[0].meta or {})
-        jpeg = render_group_image_jpeg(pil, meta0, obj_map)
+        jpeg = render_group_image_jpeg(pil, meta0, obj_map, coord_scale=float(coord_scale))
         vk = visual_group_key(meta0)
         rel = training_image_relpath(base_image_rel=base_rel, meta0=meta0, visual_key=vk)
         members.append((rel, jpeg))

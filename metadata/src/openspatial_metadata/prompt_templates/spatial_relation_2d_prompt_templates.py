@@ -186,7 +186,10 @@ def render_full_sentence_qa_pair(rng: random.Random, *, anchor: str, target: str
     ins = rng.choice(inst_pool)
 
     if inst_mode == "none":
-        ans_mode = rng.choice([k for k in FULL_SENTENCE_ANSWERS_BY_MODE.keys()])
+        # If there's no explicit instruction, keep full-sentence answers by default.
+        # Still consume one RNG choice to preserve determinism of downstream sampling.
+        _ = rng.choice([k for k in FULL_SENTENCE_ANSWERS_BY_MODE.keys()])
+        ans_mode = "one_sentence"
     else:
         ans_mode = inst_mode
 
@@ -209,7 +212,8 @@ def render_full_sentence_qa_pair_with_modes(
     ins = rng.choice(inst_pool)
 
     if inst_mode == "none":
-        ans_mode = rng.choice([k for k in FULL_SENTENCE_ANSWERS_BY_MODE.keys()])
+        _ = rng.choice([k for k in FULL_SENTENCE_ANSWERS_BY_MODE.keys()])
+        ans_mode = "one_sentence"
     else:
         ans_mode = inst_mode
 

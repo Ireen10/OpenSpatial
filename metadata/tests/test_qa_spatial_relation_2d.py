@@ -69,3 +69,16 @@ class TestQaSpatialRelation2D(unittest.TestCase):
             self.assertIn("target Y", q)
             self.assertIn("anchor X", q)
 
+    def test_full_sentence_without_instruction_uses_full_sentence_answer(self):
+        """When instruction_mode is none, full_sentence answers should not degrade to short phrases."""
+        rng = random.Random(0)
+        anchor, target = "anchor A", "target B"
+        forced_inst = {"none": [""]}  # only allow instruction_mode=none
+        with patch.object(prompt_tpl, "FULL_SENTENCE_INSTRUCTIONS_BY_MODE", forced_inst):
+            _q, ans, inst_mode, ans_mode = prompt_tpl.render_full_sentence_qa_pair_with_modes(
+                rng, anchor=anchor, target=target, direction="to the left of"
+            )
+        self.assertEqual(inst_mode, "none")
+        self.assertEqual(ans_mode, "one_sentence")
+        self.assertIn("In the image plane", ans)
+
