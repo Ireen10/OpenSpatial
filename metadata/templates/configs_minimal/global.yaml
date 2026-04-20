@@ -64,3 +64,8 @@ llm:
   # Output token cap.
   max_tokens: 512
 
+  # Optional: per-record parallelism for LLM-based adapters (e.g. refresh multiple objects concurrently).
+  # llm_parallelism: 8
+  # Optional: process-global cap for total in-flight LLM requests across all workers (recommended).
+  # llm_max_concurrency: 32
+

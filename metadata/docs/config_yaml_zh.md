@@ -39,7 +39,7 @@
 | `resume` | bool | `false` | 为 `true` 时启用 checkpoint **续跑**（与 CLI `--resume` 合并为「任一为真即续跑」）。 |
 | `strict` | bool | `true` | **遇错即停**（本轮仅支持 `true`）：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。CLI **不提供** `strict=False`。 |
 | `qa_config` | string, 可选 | `null` | 全局 QA 任务注册表 YAML 路径（例如 `metadata/templates/configs_minimal/qa_tasks.yaml`）。可被 CLI `--qa-config` 覆盖。仅在启用 dataset `pipelines.ensure_qa` / `pipelines.export_training` 路径时需要。 |
-| `llm` | mapping, 可选 | `null` | 全局 LLM 默认连接参数（OpenAI 兼容 `POST /v1/chat/completions`），用于需要 LLM 的 adapter（例如 `ExpressionRefreshQwenAdapter`）。**仅当适配器构造函数存在同名参数时**才会注入；dataset 侧 `AdapterSpec.params` 会覆盖同名键。常用键：`base_url`（含 `/v1`）、`model`、`api_key`、`timeout_s`、`temperature`、`max_tokens`。 |
+| `llm` | mapping, 可选 | `null` | 全局 LLM 默认连接参数（OpenAI 兼容 `POST /v1/chat/completions`），用于需要 LLM 的 adapter（例如 `ExpressionRefreshQwenAdapter`）。**仅当适配器构造函数存在同名参数时**才会注入；dataset 侧 `AdapterSpec.params` 会覆盖同名键。常用键：`base_url`（含 `/v1`）、`model`、`api_key`、`timeout_s`、`temperature`、`max_tokens`、`llm_parallelism`、`llm_max_concurrency`。 |
 | `training_rows_per_part` | int | `1024` | **仅训练导出**：从 `metadata_qa/data_*.jsonl` 汇总训练行后，每个 bundle（`images/data_*.tar` 等）内 **JSONL 行数** 目标上限；必须能被 `training_row_align` 整除。 |
 | `training_row_align` | int | `16` | **仅训练导出**：每个 bundle 内最终写入行数会向下对齐为该值的倍数；末段不足时在行尾丢弃余数（stderr 有提示）。测试或小样本可设为 `1`。 |
 
