@@ -33,6 +33,11 @@ batch_size: 1000
 # - 0 means "sequential"
 num_workers: 0
 
+# Record-level parallelism within a single JSONL file (order-preserving writes + strict checkpoints).
+# Use this when you have 1 big JSONL file and want more throughput without splitting it.
+# Note: effective in-flight work is roughly `num_workers * records_parallelism` (cap your LLM with llm_max_concurrency).
+records_parallelism: 1
+
 # Whether to resume from checkpoints.
 resume: false
 

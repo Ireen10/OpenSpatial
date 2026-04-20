@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from importlib import import_module
 from inspect import signature
 from pathlib import Path
@@ -295,6 +295,7 @@ def _process_jsonl_file(
     output_path: Path,
     *,
     batch_size: int,
+    records_parallelism: int = 1,
     max_records: Optional[int] = None,
     resume: bool,
     strict: bool,
@@ -308,6 +309,7 @@ def _process_jsonl_file(
     dataset_path: str,
 ) -> int:
     del strict  # reserved for future per-record error policy
+    records_parallelism = max(1, int(records_parallelism or 1))
     if max_records is not None:
         max_records = int(max_records)
         if max_records <= 0:
@@ -334,43 +336,131 @@ def _process_jsonl_file(
         if bar is not None and next_idx > 0:
             bar.update(next_idx)
             processed = next_idx
-    with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
-        for record, ref in iter_jsonl(input_path):
-            if ref.input_index < next_idx:
-                continue
-            if max_records is not None and processed_this_run >= max_records:
-                break
-            out = _apply_adapter(adapter, record)
+    def _write_buffer(w: JsonlWriter, *, next_to_write: int) -> None:
+        if not buffer:
+            return
+        w.write_records(buffer)
+        w.flush()
+        if bar is None:
+            _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_to_write}")
+        _write_checkpoint_atomic(
+            ckpt_path,
+            {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0},
+        )
+        buffer.clear()
+
+    if records_parallelism <= 1:
+        with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
+            for record, ref in iter_jsonl(input_path):
+                if ref.input_index < next_idx:
+                    continue
+                if max_records is not None and processed_this_run >= max_records:
+                    break
+                out = _apply_adapter(adapter, record)
+                out.setdefault("aux", {})
+                out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+                out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                buffer.append(out)
+                if bar is not None:
+                    bar.update(1)
+                    processed += 1
+                processed_this_run += 1
+                if len(buffer) >= batch_size:
+                    next_idx = ref.input_index + 1
+                    _write_buffer(w, next_to_write=next_idx)
+            if buffer:
+                next_idx = next_idx + len(buffer)
+                _write_buffer(w, next_to_write=next_idx)
+    else:
+        # Record-level parallelism inside this file, with strict in-order writes + checkpointing.
+        import threading
+
+        tlocal = threading.local()
+
+        def _thread_adapter() -> Optional[object]:
+            a = getattr(tlocal, "adapter", None)
+            if a is None:
+                a = adapter_factory()
+                setattr(tlocal, "adapter", a)
+            return a
+
+        def _work(record: Dict, *, input_file: str, input_index: int) -> Tuple[int, Dict]:
+            a = _thread_adapter()
+            out = _apply_adapter(a, record)
             out.setdefault("aux", {})
-            out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+            out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
             out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
             out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-            buffer.append(out)
-            if bar is not None:
-                bar.update(1)
-                processed += 1
-            processed_this_run += 1
-            if len(buffer) >= batch_size:
-                w.write_records(buffer)
-                w.flush()
-                next_idx = ref.input_index + 1
-                if bar is None:
-                    _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
-                _write_checkpoint_atomic(
-                    ckpt_path,
-                    {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0},
-                )
-                buffer.clear()
-        if buffer:
-            w.write_records(buffer)
-            w.flush()
-            next_idx = next_idx + len(buffer)
-            if bar is None:
-                _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
-            _write_checkpoint_atomic(
-                ckpt_path,
-                {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0},
-            )
+            return (input_index, out)
+
+        submitted = 0
+        next_to_write = next_idx
+        done: Dict[int, Dict] = {}
+        inflight: Dict[Any, int] = {}
+        max_inflight = max(records_parallelism * 4, records_parallelism + 1)
+        ex = ThreadPoolExecutor(max_workers=records_parallelism)
+
+        def _drain(completed_only: bool = True) -> None:
+            nonlocal processed, processed_this_run, next_to_write
+            if not inflight:
+                return
+            if completed_only:
+                (finished, _pending) = wait(list(inflight.keys()), return_when=FIRST_COMPLETED)
+            else:
+                (finished, _pending) = wait(list(inflight.keys()), return_when=None)
+            for fut in list(finished):
+                idx = inflight.pop(fut)
+                (idx2, outrec) = fut.result()
+                done[int(idx2)] = outrec
+
+            # Write in strict order as far as possible.
+            while next_to_write in done:
+                buffer.append(done.pop(next_to_write))
+                next_to_write += 1
+                if bar is not None:
+                    bar.update(1)
+                    processed += 1
+                processed_this_run += 1
+                if max_records is not None and processed_this_run >= max_records:
+                    # Stop writing further; caller will stop submitting and drain.
+                    break
+                if len(buffer) >= batch_size:
+                    _write_buffer(w, next_to_write=next_to_write)
+
+        try:
+            with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
+                for record, ref in iter_jsonl(input_path):
+                    if ref.input_index < next_idx:
+                        continue
+                    if max_records is not None and submitted >= max_records:
+                        break
+                    fut = ex.submit(_work, record, input_file=ref.input_file, input_index=int(ref.input_index))
+                    inflight[fut] = int(ref.input_index)
+                    submitted += 1
+                    while len(inflight) >= max_inflight:
+                        _drain(completed_only=True)
+                        if max_records is not None and processed_this_run >= max_records:
+                            break
+                    if max_records is not None and processed_this_run >= max_records:
+                        break
+                # Drain remaining work.
+                while inflight and (max_records is None or processed_this_run < max_records):
+                    _drain(completed_only=True)
+                # Flush any remaining contiguous done records (in case inflight stopped early).
+                while next_to_write in done and (max_records is None or processed_this_run < max_records):
+                    buffer.append(done.pop(next_to_write))
+                    next_to_write += 1
+                    if bar is not None:
+                        bar.update(1)
+                        processed += 1
+                    processed_this_run += 1
+                    if len(buffer) >= batch_size:
+                        _write_buffer(w, next_to_write=next_to_write)
+                if buffer:
+                    _write_buffer(w, next_to_write=next_to_write)
+        finally:
+            ex.shutdown(wait=True, cancel_futures=False)
     if bar is not None:
         bar.close()
     return processed_this_run
@@ -502,6 +592,7 @@ def _process_jsonl_file_training_pipeline(
     qa_task_overrides: Optional[Dict[str, Any]],
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
+    records_parallelism: int = 1,
     max_records: Optional[int] = None,
     tqdm_pos: Optional[int] = None,
 ) -> int:
@@ -513,6 +604,7 @@ def _process_jsonl_file_training_pipeline(
     old_ckpt_path = _checkpoint_path(output_root / ".checkpoints", str(input_path))
     ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
     next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
+    records_parallelism = max(1, int(records_parallelism or 1))
     if max_records is not None:
         max_records = int(max_records)
         if max_records <= 0:
@@ -526,7 +618,6 @@ def _process_jsonl_file_training_pipeline(
     noq_path = noq_dir / shard
     qa_path = qa_dir / shard
 
-    adapter = adapter_factory()
     qa_params = resolve_qa_task_params(qa_registry, qa_task_name=qa_task_name, overrides=qa_task_overrides)
 
     checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -549,50 +640,148 @@ def _process_jsonl_file_training_pipeline(
         with JsonlWriter(noq_path, append=resume and noq_path.exists()) as w_noq, JsonlWriter(
             qa_path, append=resume and qa_path.exists()
         ) as w_qa:
-            for record, ref in iter_jsonl(input_path):
-                if ref.input_index < next_idx:
-                    continue
-                if max_records is not None and processed_this_run >= max_records:
-                    break
-
-                # Step 1: to_metadata (adapter + dataset meta + enrich)
-                if enable_to_metadata:
-                    out = _apply_adapter(adapter, record)
-                    out.setdefault("aux", {})
-                    out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-                    out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-                else:
-                    out = dict(record)
-
-                md_noqa = _md_validate(out)
-
-                # Step 2: ensure_qa (metadata-native QA generator)
-                md_qa = md_noqa
-                if enable_ensure_qa and not md_noqa.qa_items:
-                    items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                    payload = _md_dump(md_noqa)
-                    payload["qa_items"] = [_qa_item_dump(it) for it in items]
-                    md_qa = _md_validate(payload)
-
-                # Always persist the noqa view (one line per input record). When qa_items is empty, skip
-                # metadata_qa and training export for that record (export still requires non-empty qa_items).
-                w_noq.write_records([_md_dump(md_noqa)])
-
-                # Persist the "qa" view only when there is at least 1 QA item.
-                if md_qa.qa_items:
-                    w_qa.write_records([_md_dump(md_qa)])
-
-                next_idx = ref.input_index + 1
+            def _write_checkpoint(next_to_write: int) -> None:
                 _write_checkpoint_atomic(
-                    ckpt_path, {"input_file": str(input_path), "next_input_index": next_idx, "errors_count": 0}
+                    ckpt_path, {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0}
                 )
 
-                if bar is not None:
-                    bar.update(1)
-                elif _PROGRESS_MODE == "log" and (next_idx % 1000 == 0):
-                    _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
-                processed_this_run += 1
+            if records_parallelism <= 1:
+                adapter = adapter_factory()
+                for record, ref in iter_jsonl(input_path):
+                    if ref.input_index < next_idx:
+                        continue
+                    if max_records is not None and processed_this_run >= max_records:
+                        break
+
+                    # Step 1: to_metadata (adapter + dataset meta + enrich)
+                    if enable_to_metadata:
+                        out = _apply_adapter(adapter, record)
+                        out.setdefault("aux", {})
+                        out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+                        out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                    else:
+                        out = dict(record)
+
+                    md_noqa = _md_validate(out)
+
+                    # Step 2: ensure_qa (metadata-native QA generator)
+                    md_qa = md_noqa
+                    if enable_ensure_qa and not md_noqa.qa_items:
+                        items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                        payload = _md_dump(md_noqa)
+                        payload["qa_items"] = [_qa_item_dump(it) for it in items]
+                        md_qa = _md_validate(payload)
+
+                    # Always persist the noqa view (one line per input record). When qa_items is empty, skip
+                    # metadata_qa and training export for that record (export still requires non-empty qa_items).
+                    w_noq.write_records([_md_dump(md_noqa)])
+
+                    # Persist the "qa" view only when there is at least 1 QA item.
+                    if md_qa.qa_items:
+                        w_qa.write_records([_md_dump(md_qa)])
+
+                    next_idx = ref.input_index + 1
+                    _write_checkpoint(next_idx)
+
+                    if bar is not None:
+                        bar.update(1)
+                    elif _PROGRESS_MODE == "log" and (next_idx % 1000 == 0):
+                        _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
+                    processed_this_run += 1
+            else:
+                import threading
+
+                tlocal = threading.local()
+
+                def _thread_adapter() -> Optional[object]:
+                    a = getattr(tlocal, "adapter", None)
+                    if a is None:
+                        a = adapter_factory()
+                        setattr(tlocal, "adapter", a)
+                    return a
+
+                def _work(record: Dict, *, input_file: str, input_index: int) -> Tuple[int, Dict, Optional[Dict]]:
+                    a = _thread_adapter()
+                    # Step 1: to_metadata
+                    if enable_to_metadata:
+                        out = _apply_adapter(a, record)
+                        out.setdefault("aux", {})
+                        out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
+                        out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                    else:
+                        out = dict(record)
+
+                    md_noqa = _md_validate(out)
+
+                    md_qa = md_noqa
+                    qa_payload: Optional[Dict] = None
+                    if enable_ensure_qa and not md_noqa.qa_items:
+                        items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                        payload = _md_dump(md_noqa)
+                        payload["qa_items"] = [_qa_item_dump(it) for it in items]
+                        md_qa = _md_validate(payload)
+                    if md_qa.qa_items:
+                        qa_payload = _md_dump(md_qa)
+                    return (input_index, _md_dump(md_noqa), qa_payload)
+
+                submitted = 0
+                next_to_write = next_idx
+                done: Dict[int, Tuple[Dict, Optional[Dict]]] = {}
+                inflight: Dict[Any, int] = {}
+                max_inflight = max(records_parallelism * 4, records_parallelism + 1)
+                ex = ThreadPoolExecutor(max_workers=records_parallelism)
+
+                def _drain() -> None:
+                    nonlocal processed_this_run, next_to_write
+                    if not inflight:
+                        return
+                    (finished, _pending) = wait(list(inflight.keys()), return_when=FIRST_COMPLETED)
+                    for fut in list(finished):
+                        _idx = inflight.pop(fut)
+                        (idx2, noq_payload, qa_payload) = fut.result()
+                        done[int(idx2)] = (noq_payload, qa_payload)
+                    while next_to_write in done and (max_records is None or processed_this_run < max_records):
+                        (noq_payload, qa_payload) = done.pop(next_to_write)
+                        w_noq.write_records([noq_payload])
+                        if qa_payload is not None:
+                            w_qa.write_records([qa_payload])
+                        next_to_write += 1
+                        _write_checkpoint(next_to_write)
+                        if bar is not None:
+                            bar.update(1)
+                        elif _PROGRESS_MODE == "log" and (next_to_write % 1000 == 0):
+                            _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_to_write}")
+                        processed_this_run += 1
+
+                try:
+                    for record, ref in iter_jsonl(input_path):
+                        if ref.input_index < next_idx:
+                            continue
+                        if max_records is not None and submitted >= max_records:
+                            break
+                        fut = ex.submit(_work, record, input_file=ref.input_file, input_index=int(ref.input_index))
+                        inflight[fut] = int(ref.input_index)
+                        submitted += 1
+                        while len(inflight) >= max_inflight and (max_records is None or processed_this_run < max_records):
+                            _drain()
+                        if max_records is not None and processed_this_run >= max_records:
+                            break
+                    while inflight and (max_records is None or processed_this_run < max_records):
+                        _drain()
+                    while next_to_write in done and (max_records is None or processed_this_run < max_records):
+                        (noq_payload, qa_payload) = done.pop(next_to_write)
+                        w_noq.write_records([noq_payload])
+                        if qa_payload is not None:
+                            w_qa.write_records([qa_payload])
+                        next_to_write += 1
+                        _write_checkpoint(next_to_write)
+                        if bar is not None:
+                            bar.update(1)
+                        processed_this_run += 1
+                finally:
+                    ex.shutdown(wait=True, cancel_futures=False)
     finally:
         if bar is not None:
             bar.close()
@@ -605,6 +794,7 @@ def _process_jsonl_files_parallel(
     *,
     effective: int,
     batch_size: int,
+    records_parallelism: int,
     resume: bool,
     strict: bool,
     output_root: Path,
@@ -631,6 +821,7 @@ def _process_jsonl_files_parallel(
                 ip,
                 op,
                 batch_size=batch_size,
+                records_parallelism=records_parallelism,
                 resume=resume,
                 strict=strict,
                 output_root=output_root,
@@ -664,6 +855,7 @@ def _process_jsonl_files_parallel(
                         nip,
                         op,
                         batch_size=batch_size,
+                        records_parallelism=records_parallelism,
                         resume=resume,
                         strict=strict,
                         output_root=output_root,
@@ -851,6 +1043,7 @@ def _process_jsonl_files_training_parallel(
     files: List[Path],
     *,
     effective: int,
+    records_parallelism: int,
     resume: bool,
     output_root: Path,
     checkpoint_root: Path,
@@ -890,6 +1083,7 @@ def _process_jsonl_files_training_parallel(
                 qa_task_overrides=qa_task_overrides,
                 enable_to_metadata=enable_to_metadata,
                 enable_ensure_qa=enable_ensure_qa,
+                records_parallelism=records_parallelism,
                 tqdm_pos=slot,
             )
             futures[fut] = (ip, part_id, slot)
@@ -928,6 +1122,7 @@ def _process_jsonl_files_training_parallel(
                         qa_task_overrides=qa_task_overrides,
                         enable_to_metadata=enable_to_metadata,
                         enable_ensure_qa=enable_ensure_qa,
+                        records_parallelism=records_parallelism,
                         tqdm_pos=slot2,
                     )
                     futures[nfut] = (ip2, part_id2, slot2)
@@ -948,6 +1143,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-root", default=None, help="Override output root (otherwise from global config).")
     p.add_argument("--resume", action="store_true", help="Resume from checkpoints.")
     p.add_argument("--num-workers", type=int, default=0, help="Number of workers (file-level parallel); 0 = use global.yaml num_workers.")
+    p.add_argument(
+        "--records-parallelism",
+        type=int,
+        default=0,
+        help="Per-file record-level parallelism (order-preserving). 0 = use global.yaml records_parallelism.",
+    )
     p.add_argument(
         "--max-records-per-split",
         type=int,
@@ -979,6 +1180,7 @@ def main(argv=None) -> None:
             _log("tqdm not available; falling back to log progress")
     g = load_global_config(args.global_config)
     cli_workers = args.num_workers
+    cli_records_parallelism = int(getattr(args, "records_parallelism", 0) or 0)
     max_records_per_split = int(getattr(args, "max_records_per_split", 0) or 0)
     max_records_total = int(getattr(args, "max_records_total", 0) or 0)
     remaining_total: Optional[int] = max_records_total if max_records_total > 0 else None
@@ -1027,10 +1229,12 @@ def main(argv=None) -> None:
             eff = effective_parallel_workers(cli_workers, g.num_workers, len(files))
             if remaining is not None:
                 eff = 1
+            rec_par = cli_records_parallelism if cli_records_parallelism > 0 else int(getattr(g, "records_parallelism", 1) or 1)
+            rec_par = max(1, int(rec_par))
             resume = args.resume or g.resume
             pipe = _pipeline_flags(ds)
             _log(
-                f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} "
+                f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} rec_par={rec_par} "
                 f"batch_size={g.batch_size} enrich2d={rel2d} out={out_dir}"
             )
 
@@ -1052,6 +1256,7 @@ def main(argv=None) -> None:
                         _process_jsonl_files_training_parallel(
                             files,
                             effective=eff,
+                            records_parallelism=rec_par,
                             resume=resume,
                             output_root=output_root,
                             checkpoint_root=checkpoint_root,
@@ -1087,6 +1292,7 @@ def main(argv=None) -> None:
                                 qa_task_overrides=qa_task_overrides,
                                 enable_to_metadata=enable_to_metadata,
                                 enable_ensure_qa=enable_ensure_qa,
+                                records_parallelism=rec_par,
                                 max_records=remaining,
                                 tqdm_pos=0,
                             )
@@ -1112,6 +1318,7 @@ def main(argv=None) -> None:
                             out_dir,
                             effective=eff,
                             batch_size=g.batch_size,
+                            records_parallelism=rec_par,
                             resume=resume,
                             strict=g.strict,
                             output_root=output_root,
@@ -1132,6 +1339,7 @@ def main(argv=None) -> None:
                                 ip,
                                 op,
                                 batch_size=g.batch_size,
+                                records_parallelism=rec_par,
                                 max_records=remaining,
                                 resume=resume,
                                 strict=g.strict,

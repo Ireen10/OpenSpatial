@@ -79,6 +79,9 @@ class GlobalConfig(BaseModel):
     scale: int = 1000
     batch_size: int = 1000
     num_workers: int = 0
+    # Record-level parallelism within one input JSONL file (order-preserving writes).
+    # 1 means sequential per file (default).
+    records_parallelism: int = 1
     resume: bool = False
     strict: bool = True
     qa_config: Optional[str] = None
