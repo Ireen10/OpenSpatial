@@ -47,3 +47,20 @@ qa_config: metadata/templates/configs_minimal/qa_tasks.yaml
 training_rows_per_part: 1024
 training_row_align: 16
 
+# Optional: Global defaults for OpenAI-compatible LLM adapters.
+# These keys are injected into adapter constructors only when the adapter __init__ has the same parameter name.
+# Dataset adapter `params:` overrides these values.
+llm:
+  # OpenAI-compatible base URL including /v1 (e.g. vLLM, Ollama bridge).
+  base_url: "http://127.0.0.1:8000/v1"
+  # Model name as understood by your server.
+  model: "qwen3-vl-32b-instruct"
+  # Optional. If your server enforces auth.
+  api_key: ""
+  # Request timeout in seconds.
+  timeout_s: 120
+  # Determinism: temperature defaults to 0.0 in code, but you can still set it globally here.
+  temperature: 0.0
+  # Output token cap.
+  max_tokens: 512
+
