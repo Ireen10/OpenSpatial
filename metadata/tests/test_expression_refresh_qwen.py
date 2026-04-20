@@ -179,6 +179,106 @@ def test_multi_two_candidates_two_calls(tmp_path: Path) -> None:
     assert "unique" in user_content[1]["text"].lower()
 
 
+def test_all_objects_mode_single_call_updates_both_and_rewrites_query(tmp_path: Path) -> None:
+    from PIL import Image
+
+    img = tmp_path / "m.jpg"
+    Image.new("RGB", (6, 6), color=(3, 3, 3)).save(img, format="JPEG")
+
+    stub = _StubClient(
+        [
+            {
+                "objects": [
+                    {
+                        "index": 1,
+                        "bbox_xyxy_norm_1000": [0, 0, 10, 10],
+                        "category": "person",
+                        "phrase": "woman wearing glasses",
+                    },
+                    {
+                        "index": 2,
+                        "bbox_xyxy_norm_1000": [20, 20, 30, 30],
+                        "category": "person",
+                        "phrase": "man in a blue shirt",
+                    },
+                ]
+            }
+        ]
+    )
+    ad = ExpressionRefreshQwenAdapter(
+        image_root=str(tmp_path),
+        client=stub,
+        refresh_mode="all_objects",
+        draw_boxes=False,
+    )
+    md = _minimal_md(
+        image_path="m.jpg",
+        objects=[
+            {"object_id": "obj#0", "category": "", "phrase": "r", "bbox_xyxy_norm_1000": [0, 0, 10, 10]},
+            {"object_id": "obj#1", "category": "", "phrase": "r", "bbox_xyxy_norm_1000": [20, 20, 30, 30]},
+        ],
+        queries=[
+            {
+                "query_id": "q#0",
+                "query_text": "r",
+                "query_type": "multi_instance_grounding",
+                "candidate_object_ids": ["obj#0", "obj#1"],
+                "count": 2,
+            }
+        ],
+    )
+    out = ad.convert(md)
+    assert out["aux"]["expression_refresh"]["n_llm_calls"] == 1
+    assert out["objects"][0]["phrase"] == "woman wearing glasses"
+    assert out["objects"][0]["category"] == "person"
+    assert out["objects"][1]["phrase"] == "man in a blue shirt"
+    assert out["queries"][0]["query_text"] == "woman wearing glasses; man in a blue shirt"
+    assert stub.last_messages is not None
+    user_text = stub.last_messages[1]["content"][1]["text"].lower()
+    assert "different instance" in user_text
+    assert "boxes:" in user_text
+
+
+def test_all_objects_mode_bbox_mismatch_is_recorded(tmp_path: Path) -> None:
+    from PIL import Image
+
+    img = tmp_path / "mm.jpg"
+    Image.new("RGB", (6, 6), color=(3, 3, 3)).save(img, format="JPEG")
+
+    stub = _StubClient(
+        [
+            {
+                "objects": [
+                    {
+                        "index": 1,
+                        "bbox_xyxy_norm_1000": [999, 999, 999, 999],  # mismatch
+                        "category": "person",
+                        "phrase": "woman wearing glasses",
+                    }
+                ]
+            }
+        ]
+    )
+    ad = ExpressionRefreshQwenAdapter(
+        image_root=str(tmp_path),
+        client=stub,
+        refresh_mode="all_objects",
+        draw_boxes=False,
+    )
+    md = _minimal_md(
+        image_path="mm.jpg",
+        objects=[
+            {"object_id": "obj#0", "category": "", "phrase": "r", "bbox_xyxy_norm_1000": [0, 0, 10, 10]},
+        ],
+        queries=[
+            {"query_id": "q#0", "query_text": "r", "candidate_object_ids": ["obj#0"], "gold_object_id": "obj#0"}
+        ],
+    )
+    out = ad.convert(md)
+    errs = out["aux"]["expression_refresh"]["errors"]
+    assert any(e.get("code") == "bbox_mismatch" for e in errs)
+
+
 def test_multi_two_candidates_can_run_in_parallel_with_limit(tmp_path: Path) -> None:
     from PIL import Image
 

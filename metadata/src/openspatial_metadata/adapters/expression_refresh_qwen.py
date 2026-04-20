@@ -23,6 +23,7 @@ import threading
 
 from PIL import Image
 from PIL import ImageDraw
+from PIL import ImageFont
 
 from openspatial_metadata.llm.openai_compatible import OpenAICompatibleChatClient
 
@@ -39,6 +40,14 @@ def _parse_json_object_from_llm_text(text: str) -> Dict[str, Any]:
             lines = lines[:-1]
         t = "\n".join(lines)
     return json.loads(t)
+
+
+def _image_jpeg_data_url(base_rgb: Image.Image) -> str:
+    rgb = base_rgb.copy()
+    buf = io.BytesIO()
+    rgb.save(buf, format="JPEG", quality=92)
+    b64 = base64.standard_b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
 
 
 def _image_jpeg_data_url_with_red_box(base_rgb: Image.Image, *, bbox: List[int], coord_scale: int) -> str:
@@ -61,6 +70,47 @@ def _image_jpeg_data_url_with_red_box(base_rgb: Image.Image, *, bbox: List[int],
     rgb.save(buf, format="JPEG", quality=92)
     b64 = base64.standard_b64encode(buf.getvalue()).decode("ascii")
     return f"data:image/jpeg;base64,{b64}"
+
+
+def _image_jpeg_data_url_with_boxes(
+    base_rgb: Image.Image,
+    *,
+    bboxes: List[List[int]],
+    coord_scale: int,
+) -> str:
+    rgb = base_rgb.copy()
+    draw = ImageDraw.Draw(rgb)
+    font = ImageFont.load_default()
+    w, h = rgb.size
+    sc = float(coord_scale) if coord_scale else 1000.0
+
+    palette = [
+        (0, 255, 0),
+        (255, 0, 0),
+        (0, 128, 255),
+        (255, 165, 0),
+        (255, 0, 255),
+        (0, 255, 255),
+        (255, 255, 0),
+        (255, 255, 255),
+    ]
+    stroke = max(2, int(min(w, h) * 0.006))
+
+    for i, bbox in enumerate(bboxes):
+        x1, y1, x2, y2 = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
+        px1 = x1 / sc * w
+        py1 = y1 / sc * h
+        px2 = x2 / sc * w
+        py2 = y2 / sc * h
+        color = palette[i % len(palette)]
+        draw.rectangle([px1, py1, px2, py2], outline=color, width=stroke)
+        # label
+        label = f"#{i+1}"
+        tx = max(0, int(px1) + 2)
+        ty = max(0, int(py1) + 2)
+        draw.text((tx, ty), label, fill=color, font=font)
+
+    return _image_jpeg_data_url(rgb)
 
 
 _SYSTEM_PROMPT = (
@@ -102,6 +152,29 @@ def _user_text_multi(
         f"(x1,y1,x2,y2)=({x1},{y1},{x2},{y2}). "
         "Give a unique phrase for this instance. "
         "Output JSON: {{\"category\": \"...\", \"phrase\": \"...\" or null}}."
+    )
+
+
+def _user_text_all_objects(*, bboxes: List[List[int]], coord_scale: int) -> str:
+    lines = []
+    for i, bbox in enumerate(bboxes):
+        x1, y1, x2, y2 = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
+        lines.append(f"- box #{i+1}: (x1,y1,x2,y2)=({x1},{y1},{x2},{y2})")
+    joined = "\n".join(lines)
+    return (
+        "You are given ONE image with multiple bounding boxes. Each box is a DIFFERENT instance in the image, "
+        "even if boxes overlap.\n"
+        f"All boxes use normalized coordinates 0..{coord_scale}.\n"
+        "Boxes:\n"
+        f"{joined}\n\n"
+        "For each box, output a UNIQUE referring expression that identifies the instance INSIDE that box.\n"
+        "Rules for phrase:\n"
+        "- Must be unique across the provided boxes.\n"
+        "- Must NOT use spatial/positional wording (left/right/top/bottom/behind/in front/next to/between/etc.).\n"
+        "- Must NOT refer to the box index or box color (e.g. '#1', 'first', 'second', 'green box', etc.).\n"
+        "- If a non-spatial unique description is impossible, set phrase to null.\n\n"
+        "Output JSON schema (single JSON object):\n"
+        '{ "objects": [ { "index": 1, "bbox_xyxy_norm_1000": [x1,y1,x2,y2], "category": "word", "phrase": "..." or null }, ... ] }'
     )
 
 
@@ -167,6 +240,8 @@ class ExpressionRefreshQwenAdapter:
         max_tokens: int = 512,
         on_llm_error: str = "keep",
         print_llm_output: bool = False,
+        refresh_mode: str = "per_object",
+        draw_boxes: bool = True,
         llm_parallelism: int = 1,
         llm_max_concurrency: int = 0,
         client: Optional[OpenAICompatibleChatClient] = None,
@@ -181,6 +256,8 @@ class ExpressionRefreshQwenAdapter:
         self.max_tokens = int(max_tokens)
         self.on_llm_error = on_llm_error if on_llm_error in ("keep", "drop") else "keep"
         self.print_llm_output = bool(print_llm_output)
+        self.refresh_mode = refresh_mode if refresh_mode in ("per_object", "all_objects") else "per_object"
+        self.draw_boxes = bool(draw_boxes)
         self.llm_parallelism = max(1, int(llm_parallelism))
         self.llm_max_concurrency = int(llm_max_concurrency)
         self._client = client or OpenAICompatibleChatClient(
@@ -332,23 +409,92 @@ class ExpressionRefreshQwenAdapter:
             visited_oids.add(oid)
             tasks.append((oid, 1, 0))
 
-        results: Dict[str, Tuple[bool, Optional[str], str, Optional[str]]] = {}
-        if tasks and self.llm_parallelism > 1:
-            mw = min(self.llm_parallelism, len(tasks))
-            with ThreadPoolExecutor(max_workers=mw) as ex:
-                futs = {ex.submit(_refresh_one_object_result, oid, n, j): oid for (oid, n, j) in tasks}
-                for fut in as_completed(list(futs.keys())):
-                    oid = futs[fut]
-                    try:
-                        (oid2, called, phrase, category, err) = fut.result()
-                        results[oid2] = (called, phrase, category, err)
-                    except Exception as exc:  # noqa: BLE001
-                        results[oid] = (False, None, "", str(exc))
+        # New mode: single LLM call for all objects in this record.
+        if tasks and self.refresh_mode == "all_objects":
+            bboxes = []
+            oids_by_index: List[str] = []
+            for oid, _n, _j in tasks:
+                obj = obj_by_id.get(oid) or {}
+                bbox = obj.get("bbox_xyxy_norm_1000")
+                if not isinstance(bbox, list) or len(bbox) != 4:
+                    stats["errors"].append({"code": "missing_bbox", "object_id": oid})
+                    continue
+                bboxes.append([int(x) for x in bbox])
+                oids_by_index.append(oid)
+
+            if bboxes:
+                user_text = _user_text_all_objects(bboxes=bboxes, coord_scale=self.coord_scale)
+                raw: Dict[str, Any] = {}
+                acquired = False
+                try:
+                    if sem is not None:
+                        sem.acquire()
+                        acquired = True
+                    data_url = (
+                        _image_jpeg_data_url_with_boxes(base_rgb, bboxes=bboxes, coord_scale=self.coord_scale)
+                        if self.draw_boxes
+                        else _image_jpeg_data_url(base_rgb)
+                    )
+                    raw = self._call_model(data_url, user_text)
+                    stats["n_llm_calls"] += 1
+                except Exception as exc:  # noqa: BLE001
+                    stats["errors"].append({"code": "llm_error", "detail": str(exc)})
+                    if self.on_llm_error == "drop":
+                        drop_ids.update(oids_by_index)
+                    aux["expression_refresh"] = stats
+                    out["aux"] = aux
+                    # continue to rewrite objects/queries according to drop_ids
+                finally:
+                    if sem is not None and acquired:
+                        sem.release()
+
+                objs_out = raw.get("objects") if isinstance(raw, dict) else None
+                if isinstance(objs_out, list):
+                    for it in objs_out:
+                        if not isinstance(it, dict):
+                            continue
+                        idx = it.get("index")
+                        if not isinstance(idx, int) or idx < 1 or idx > len(oids_by_index):
+                            continue
+                        oid = oids_by_index[idx - 1]
+                        bbox_ret = it.get("bbox_xyxy_norm_1000")
+                        if isinstance(bbox_ret, list) and len(bbox_ret) == 4:
+                            exp = bboxes[idx - 1]
+                            got = [int(x) for x in bbox_ret]
+                            if got != exp:
+                                stats["errors"].append(
+                                    {"code": "bbox_mismatch", "object_id": oid, "index": idx, "expected": exp, "got": got}
+                                )
+                        phrase, category = _normalize_llm_obj(it)
+                        if phrase is None:
+                            drop_ids.add(oid)
+                            continue
+                        obj = obj_by_id.get(oid)
+                        if obj is not None:
+                            obj["phrase"] = phrase
+                            if category:
+                                obj["category"] = category
+
+            # Skip per-object path; proceed to rebuild objects/queries.
+            results: Dict[str, Tuple[bool, Optional[str], str, Optional[str]]] = {}
         else:
-            # Sequential fallback (default behavior).
-            for oid, n, j in tasks:
-                (oid2, called, phrase, category, err) = _refresh_one_object_result(oid, n, j)
-                results[oid2] = (called, phrase, category, err)
+            results = {}
+            if tasks and self.llm_parallelism > 1:
+                mw = min(self.llm_parallelism, len(tasks))
+                with ThreadPoolExecutor(max_workers=mw) as ex:
+                    futs = {ex.submit(_refresh_one_object_result, oid, n, j): oid for (oid, n, j) in tasks}
+                    for fut in as_completed(list(futs.keys())):
+                        oid = futs[fut]
+                        try:
+                            (oid2, called, phrase, category, err) = fut.result()
+                            results[oid2] = (called, phrase, category, err)
+                        except Exception as exc:  # noqa: BLE001
+                            results[oid] = (False, None, "", str(exc))
+            else:
+                # Sequential fallback (default behavior).
+                for oid, n, j in tasks:
+                    (oid2, called, phrase, category, err) = _refresh_one_object_result(oid, n, j)
+                    results[oid2] = (called, phrase, category, err)
 
         for oid, (called, phrase, category, err) in results.items():
             if err == "missing_bbox":

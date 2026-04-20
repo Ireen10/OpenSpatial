@@ -19,6 +19,12 @@ adapters:
   - file_name: grounding_qa
     class_name: GroundingQAAdapter
 
+  # Optional: de-duplicate identical bboxes BEFORE LLM refresh (prevents forcing distinct phrases for identical regions).
+  # - file_name: object_dedup_exact_pre
+  #   class_name: ObjectDedupExactAdapter
+  #   params:
+  #     key_mode: bbox
+
   - file_name: expression_refresh_qwen
     class_name: ExpressionRefreshQwenAdapter
     params:
@@ -30,6 +36,11 @@ adapters:
       # Optional: parallelize LLM calls within one record (multi-object) and cap total in-flight requests.
       # llm_parallelism: 8
       # llm_max_concurrency: 32
+      # Optional: refresh strategy
+      # - per_object (default): one LLM call per bbox (image contains a red box)
+      # - all_objects: one LLM call per record (image may draw all boxes as #1..#N)
+      # refresh_mode: all_objects
+      # draw_boxes: true
       on_llm_error: keep
 
   # Optional but recommended: de-duplicate exact (bbox + phrase) objects after LLM refresh.

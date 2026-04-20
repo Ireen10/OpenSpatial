@@ -7,19 +7,24 @@ Designed to run after phrase-refresh adapters (e.g. ExpressionRefreshQwenAdapter
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 
-def _dedup_key(obj: Dict[str, Any]) -> Optional[Tuple[Tuple[int, int, int, int], str]]:
+KeyMode = Literal["bbox_phrase", "bbox"]
+
+
+def _dedup_key(obj: Dict[str, Any], *, key_mode: KeyMode) -> Optional[Tuple[Any, ...]]:
     bbox = obj.get("bbox_xyxy_norm_1000")
-    phrase = obj.get("phrase")
-    if not isinstance(phrase, str) or phrase == "":
-        return None
     if not isinstance(bbox, list) or len(bbox) != 4:
         return None
     try:
         b = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
     except Exception:
+        return None
+    if key_mode == "bbox":
+        return (b,)
+    phrase = obj.get("phrase")
+    if not isinstance(phrase, str) or phrase == "":
         return None
     return (b, phrase)
 
@@ -36,6 +41,9 @@ class ObjectDedupExactAdapter:
     - count is updated when present
     """
 
+    def __init__(self, *, key_mode: KeyMode = "bbox_phrase") -> None:
+        self.key_mode: KeyMode = key_mode if key_mode in ("bbox_phrase", "bbox") else "bbox_phrase"
+
     def convert(self, record: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(record)
         objs_in = out.get("objects") or []
@@ -43,7 +51,7 @@ class ObjectDedupExactAdapter:
             return out
 
         kept: List[Dict[str, Any]] = []
-        seen: set[Tuple[Tuple[int, int, int, int], str]] = set()
+        seen: set[Tuple[Any, ...]] = set()
         oid_map: Dict[str, str] = {}
         dropped = 0
 
@@ -53,7 +61,7 @@ class ObjectDedupExactAdapter:
             oid = o.get("object_id")
             if not isinstance(oid, str) or not oid:
                 continue
-            key = _dedup_key(o)
+            key = _dedup_key(o, key_mode=self.key_mode)
             if key is not None and key in seen:
                 dropped += 1
                 continue
