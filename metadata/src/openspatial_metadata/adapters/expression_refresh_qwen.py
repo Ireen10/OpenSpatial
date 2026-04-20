@@ -140,7 +140,7 @@ class ExpressionRefreshQwenAdapter:
         model: str = "qwen3-vl-32b-instruct",
         api_key: str = "",
         timeout_s: float = 120.0,
-        temperature: float = 0.2,
+        temperature: float = 0.0,
         max_tokens: int = 512,
         on_llm_error: str = "keep",
         print_llm_output: bool = False,

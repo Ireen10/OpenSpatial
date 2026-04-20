@@ -34,7 +34,7 @@ class OpenAICompatibleChatClient:
         *,
         model: str,
         messages: List[Dict[str, Any]],
-        temperature: float = 0.2,
+        temperature: float = 0.0,
         max_tokens: int = 512,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
