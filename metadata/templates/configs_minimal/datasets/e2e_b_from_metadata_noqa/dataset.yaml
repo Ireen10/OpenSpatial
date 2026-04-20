@@ -16,6 +16,11 @@ splits:
     inputs:
       - "path/to/metadata_noqa.metadata.jsonl"
 
+# Optional adapters chain (already-metadata input can still be post-processed).
+# adapters:
+#   - file_name: "passthrough"
+#     class_name: "PassthroughAdapter"
+
 pipelines:
   # Input is already metadata
   to_metadata: false

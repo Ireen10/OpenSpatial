@@ -82,6 +82,8 @@ class GlobalConfig(BaseModel):
     resume: bool = False
     strict: bool = True
     qa_config: Optional[str] = None
+    # Optional LLM defaults (OpenAI-compatible APIs). Individual adapters may override via AdapterSpec.params.
+    llm: Optional[Dict[str, Any]] = None
     # Training bundle packing (CLI export_training phase only; metadata unaffected).
     training_rows_per_part: int = 1024
     training_row_align: int = 16

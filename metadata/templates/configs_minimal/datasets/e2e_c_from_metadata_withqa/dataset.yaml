@@ -16,6 +16,11 @@ splits:
     inputs:
       - "path/to/metadata_withqa.metadata.jsonl"
 
+# Optional adapters chain (already-metadata input can still be post-processed).
+# adapters:
+#   - file_name: "passthrough"
+#     class_name: "PassthroughAdapter"
+
 pipelines:
   to_metadata: false
   # QA already exists, so skip generation:

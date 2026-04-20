@@ -1,0 +1,47 @@
+## Dataset template: E2E-D (grounding chat jsonl -> metadata -> refresh phrase/category (LLM) -> QA -> training)
+#
+# Use this when your raw input is grounding-QA style chat JSONL (image + text turns),
+# and you want to refresh referring expressions + category via a local vision LLM.
+#
+# Note: LLM connection defaults can live in global.yaml under `llm:`; adapter.params overrides per dataset.
+
+name: "your_dataset_name"
+
+metadata_output_root: "metadata_out"   # optional
+training_output_root: "training_out"   # optional
+
+viz:
+  # Required for export_training and for expression_refresh_qwen to load original images.
+  # If relative, resolved against this dataset.yaml directory.
+  image_root: "path/to/images_root"
+
+adapters:
+  - file_name: grounding_qa
+    class_name: GroundingQAAdapter
+
+  - file_name: expression_refresh_qwen
+    class_name: ExpressionRefreshQwenAdapter
+    params:
+      # Optional override. If omitted, CLI will pass image_root resolved from `viz.image_root`.
+      # image_root: "path/to/images_root"
+      # Optional LLM overrides (otherwise use global.llm):
+      # base_url: "http://127.0.0.1:8000/v1"
+      # model: "qwen3-vl-32b-instruct"
+      on_llm_error: keep
+
+adapter_chain:
+  strict_dict: true
+  validate_metadata_from_adapter_index: 1
+
+splits:
+  - name: "train"
+    input_type: "jsonl"
+    inputs:
+      - "path/to/grounding_chat.jsonl"
+
+pipelines:
+  to_metadata: true
+  ensure_qa: true
+  export_training: true
+  qa_task_name: "spatial_relation_2d"
+

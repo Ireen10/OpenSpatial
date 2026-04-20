@@ -15,6 +15,15 @@ viz:
   # If relative, resolved against this dataset.yaml directory.
   image_root: "path/to/images_root"
 
+# Optional adapters chain. Use this when your input is raw and needs conversion,
+# or when you want to add post-processing (e.g. LLM-based phrase/category refresh).
+# adapters:
+#   - file_name: "passthrough"
+#     class_name: "PassthroughAdapter"
+# adapter_chain:
+#   strict_dict: true
+#   validate_metadata_from_adapter_index: 1
+
 splits:
   - name: "train_small"
     input_type: "jsonl"

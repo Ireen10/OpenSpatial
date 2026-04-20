@@ -75,6 +75,7 @@ def _tqdm(*args, **kwargs):
 def _instantiate_one_adapter(
     spec: Any,
     ds: Any,
+    g: Optional[Any] = None,
     *,
     split_name: str,
     coord_space: str,
@@ -93,6 +94,9 @@ def _instantiate_one_adapter(
     spec_params = getattr(spec, "params", None)
     if not isinstance(spec_params, dict):
         spec_params = {}
+    global_llm = getattr(g, "llm", None) if g is not None else None
+    if not isinstance(global_llm, dict):
+        global_llm = {}
 
     kwargs: Dict[str, Any] = {}
     try:
@@ -110,6 +114,16 @@ def _instantiate_one_adapter(
             if isinstance(meta, dict) and isinstance(meta.get("query_type"), str) and meta.get("query_type"):
                 kwargs["query_type_default"] = meta["query_type"]
 
+        # global.llm defaults (only for ctor params that exist on this adapter)
+        for k, v in global_llm.items():
+            if k not in params:
+                continue
+            if k == "image_root" and isinstance(v, str):
+                kwargs[k] = _resolve_path_under_dataset_config(v, dataset_config_path)
+            else:
+                kwargs[k] = v
+
+        # AdapterSpec.params overrides global.llm
         for k, v in spec_params.items():
             if k not in params:
                 continue
@@ -133,6 +147,7 @@ def _instantiate_one_adapter(
 
 def _make_adapter_factory(
     ds: Any,
+    g: Optional[Any] = None,
     *,
     split_name: str,
     coord_space: str,
@@ -153,6 +168,7 @@ def _make_adapter_factory(
             inst = _instantiate_one_adapter(
                 spec,
                 ds,
+                g,
                 split_name=split_name,
                 coord_space=coord_space,
                 coord_scale=coord_scale,
@@ -954,6 +970,7 @@ def main(argv=None) -> None:
         for split in ds.splits:
             adapter_factory = _make_adapter_factory(
                 ds,
+                g,
                 split_name=split.name,
                 coord_space="norm_0_999",
                 coord_scale=int(getattr(g, "scale", 1000)),

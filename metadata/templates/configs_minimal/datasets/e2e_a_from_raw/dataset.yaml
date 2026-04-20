@@ -17,11 +17,16 @@ meta:
   version_note: "optional"
 
 # Optional. If omitted, no adapter is used and input is treated as metadata-like dicts.
-# Common pattern: adapter converts upstream jsonl -> metadata v0 dict.
-adapter:
+# Common pattern: first adapter converts upstream jsonl -> MetadataV0 dict; second adapter mutates metadata.
+adapters:
   # Either (file_name + class_name) or (module + class_name).
-  file_name: "passthrough"
-  class_name: "PassthroughAdapter"
+  - file_name: "passthrough"
+    class_name: "PassthroughAdapter"
+
+# Optional. Only used when adapters has 2+ entries.
+# adapter_chain:
+#   strict_dict: true
+#   validate_metadata_from_adapter_index: 1
 
 # Optional enrich switches (extra keys allowed).
 enrich:
