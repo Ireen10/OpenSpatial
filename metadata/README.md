@@ -6,7 +6,7 @@
 
 **已实现（本阶段工程框架）：**
 
-- 数据集配置：建议将**可复用模板**放在 `metadata/templates/configs_minimal/` 并提交；本地运行时将配置拷贝到 `metadata/configs/`（该目录不提交）。`openspatial-metadata` 支持 `--config-root`（目录或单个文件）。
+- 数据集配置：建议将**可复用模板**放在 `metadata/templates/configs_minimal/` 并提交；本地运行时将配置拷贝到 `metadata/configs/`（该目录不提交）。`openspatial-metadata` 支持 `--config-root`（目录或单个文件）。**数据集模板**已归并为一份：`metadata/templates/configs_minimal/datasets/unified/dataset.yaml`（内含上游 / metadata_noqa / metadata_qa / grounding+LLM 等场景的注释说明与示例块）。
 - JSONL：按输入文件 1:1 写出 `.out.jsonl`；checkpoint（`next_input_index`）；可选**文件级**并行（`global.num_workers` / `--num-workers`，`ThreadPoolExecutor`）。
 - 单 JSON 多文件：聚合成 `part-*.jsonl`；checkpoint（`done`）；可选并行（worker 只读 JSON，**主线程单写者**，flush 后写 checkpoint）。
 - Schema：`schema/metadata_v0.py`（Pydantic v1）；配置模型：`config/schema.py`、`config/loader.py`。
@@ -63,19 +63,19 @@ python -m openspatial_metadata.cli --help
 **示例**（在 OpenSpatial 仓库根目录执行；配置里的相对路径相对于**当前工作目录**）：
 
 ```bash
-openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo
+openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/unified/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo
 ```
 
 并行示例（覆盖 global 中的 `num_workers`）：
 
 ```bash
-openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --num-workers 4
+openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/unified/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --num-workers 4
 ```
 
 小批量验证示例（整次运行最多处理 N 条 record，适合快速评估 LLM 刷新质量）：
 
 ```bash
-openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/demo_metadata_to_training/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --max-records-total 1000
+openspatial-metadata --config-root metadata/templates/configs_minimal/datasets/unified/dataset.yaml --global-config metadata/templates/configs_minimal/global.yaml --output-root metadata_out_demo --max-records-total 1000
 ```
 
 ### Metadata 可视化（本地 HTTP）

@@ -1,0 +1,124 @@
+# =============================================================================
+# Dataset config — single template (replaces former demo + e2e_a … e2e_d).
+# Copy this folder or file into metadata/configs/ and edit paths/name.
+# Full field reference: metadata/docs/config_yaml_zh.md
+# =============================================================================
+#
+# Profile quick switch (edit only pipelines + inputs + adapters as noted):
+#
+#   [default] Upstream source JSONL → metadata → QA → training
+#   [B]       Input is metadata without qa_items (ex‑metadata_noqa shard):
+#             pipelines.to_metadata false, persist_noqa false, ensure_qa true
+#   [C]       Input already has qa_items (ex‑metadata_qa shard):
+#             pipelines.to_metadata false, persist_noqa false, ensure_qa false
+#   [D]       Grounding chat + LLM phrase refresh: replace adapters block with
+#             the commented “Grounding + LLM refresh” chain at the bottom of this file.
+#
+# =============================================================================
+
+name: "your_dataset_name"
+
+metadata_output_root: "metadata_out"
+training_output_root: "training_out"
+
+meta:
+  source: "your_source"
+
+adapters:
+  - file_name: passthrough
+    class_name: PassthroughAdapter
+
+enrich:
+  relations_2d: true
+  relations_3d: false
+
+viz:
+  image_root: "path/to/images_root"
+
+splits:
+  - name: "train"
+    input_type: "jsonl"
+    inputs:
+      - "path/to/upstream.jsonl"
+
+pipelines:
+  to_metadata: true
+  persist_noqa: true
+  ensure_qa: true
+  export_training: true
+  qa_task_name: "spatial_relation_2d"
+
+# =============================================================================
+# --- Optional blocks: uncomment or replace defaults above ---------------------
+# =============================================================================
+#
+# --- Profile B (input = metadata rows without qa_items; was E2E-B) ------------
+# pipelines:
+#   to_metadata: false
+#   persist_noqa: false
+#   ensure_qa: true
+#   export_training: true
+#   qa_task_name: "spatial_relation_2d"
+# splits[0].inputs:
+#   - "path/to/metadata_noqa.jsonl"
+#
+# --- Profile C (input = metadata + qa_items; was E2E-C) ----------------------
+# pipelines:
+#   to_metadata: false
+#   persist_noqa: false
+#   ensure_qa: false
+#   export_training: true
+#   qa_task_name: "spatial_relation_2d"
+# splits[0].inputs:
+#   - "path/to/metadata_qa.jsonl"
+#
+# --- persist_noqa: omit duplicate metadata_noqa on disk (save space, any profile)
+# pipelines:
+#   persist_noqa: false
+#
+# --- Per-shard image tar instead of unpacked viz.image_root -------------------
+# splits[0]:
+#   image_archive_pattern: "archives/part_{shard:06d}.tar"
+#
+# --- adapter_chain (only when adapters has 2+ entries) ------------------------
+# adapter_chain:
+#   strict_dict: true
+#   validate_metadata_from_adapter_index: 1
+#
+# --- qa_task_overrides --------------------------------------------------------
+# pipelines:
+#   qa_task_overrides:
+#     dual_box_keep_prob: 0.2
+#
+# =============================================================================
+# --- Grounding + LLM refresh chain (was E2E-D): replace entire adapters: ------
+# =============================================================================
+#
+# viz:
+#   image_root: "path/to/images_root"
+#
+# adapters:
+#   - file_name: grounding_qa
+#     class_name: GroundingQAAdapter
+#   - file_name: expression_refresh_qwen
+#     class_name: ExpressionRefreshQwenAdapter
+#     params:
+#       refresh_mode: per_object
+#       draw_boxes: true
+#       on_llm_error: keep
+#   - file_name: object_dedup_exact
+#     class_name: ObjectDedupExactAdapter
+#
+# adapter_chain:
+#   strict_dict: true
+#   validate_metadata_from_adapter_index: 1
+#
+# splits[0].inputs:
+#   - "path/to/grounding_chat.jsonl"
+#
+# pipelines:
+#   to_metadata: true
+#   ensure_qa: true
+#   export_training: true
+#   qa_task_name: "spatial_relation_2d"
+#

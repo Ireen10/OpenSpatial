@@ -19,8 +19,7 @@
 
 ### Templates/docs
 
-- Update `metadata/templates/configs_minimal/datasets/e2e_b_from_metadata_noqa/dataset.yaml` and
-  `.../e2e_c_from_metadata_withqa/dataset.yaml` to set:
+- Update the unified dataset template `metadata/templates/configs_minimal/datasets/unified/dataset.yaml` (Profile B/C comment blocks) to set:
   - `pipelines.to_metadata: false`
   - `pipelines.persist_noqa: false` (explicit, so behavior is stable and obvious)
 - Optionally (separately) update `metadata/docs/config_yaml_zh.md` to document `persist_noqa` semantics.

@@ -182,6 +182,8 @@
 
 ## 最小示例
 
+完整可拷贝的数据集模板见 **`metadata/templates/configs_minimal/datasets/unified/dataset.yaml`**（含上游与仅 metadata 起点等场景的注释说明）。
+
 **Global**（`metadata/templates/configs_minimal/global.yaml`）：
 
 ```yaml
