@@ -49,9 +49,12 @@ splits:
 pipelines:
   # Stage switches (all optional; defaults shown):
   # - to_metadata: default true
+  # - persist_noqa: optional; default true when to_metadata is true. Set false to skip writing
+  #   metadata_noqa/ (saves disk) while still producing metadata_qa/ + training when enabled.
   # - ensure_qa: default true (when pipelines is present and enabled)
   # - export_training: default true (when pipelines is present and enabled)
   to_metadata: true
+  # persist_noqa: false
   ensure_qa: true
   export_training: true
 

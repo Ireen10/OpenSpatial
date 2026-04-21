@@ -85,15 +85,17 @@
 
 - **类型**：映射（当前实现接受 dict；模型允许 extra 字段）
 - **说明**：当配置 `pipelines.ensure_qa=true` 或 `pipelines.export_training=true` 时，CLI 对 `jsonl` 输入会走“单条记录不中断”的串联执行路径（同一 worker 内）：
-  - `to_metadata`：可选。对非 metadata 输入做 adapter/meta/enrich 后写出 `metadata_noqa/`（每条输入一行）。
-  - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`（仅当 `qa_items` 非空时写一行；为空则仍保留对应 `metadata_noqa/` 行，但不写 `metadata_qa/`、也不做训练导出）。
+  - `to_metadata`：可选。为 `true` 时对每条输入跑 adapter/meta/enrich 生成 `MetadataV0`；为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich）。**是否落盘** `metadata_noqa/` 由下面的 `persist_noqa` 决定，而不是仅由本开关决定。
+  - `persist_noqa`：可选。控制是否写出 `{split}/metadata_noqa/data_*.jsonl`（节省磁盘时可关）。**未设置**时：若 `to_metadata=true` 则默认写出 `metadata_noqa/`；若 `to_metadata=false` 则默认**不**写出（避免从 metadata 起步再复制一份）。若**显式**设为 `true`/`false`，则无论起点如何都按该值执行。
+  - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`（仅当 `qa_items` 非空时写一行；若 `qa_items` 为空则不写 `metadata_qa/`、也不做训练导出；若此时仍写出了 `metadata_noqa/`（见 `persist_noqa`），则 `metadata_noqa` 中仍会保留该条记录）。
   - `export_training`：可选。将带 `qa_items` 的 metadata 导出为训练 bundle（`images/` + `jsonl/`）。若 CLI 使用 `--progress tqdm` 或 `--progress log`，该阶段进度按 `metadata_qa/data_*.jsonl` **分片（shard）**推进。
 
 支持字段（最小集）：
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `to_metadata` | bool | `true` | 为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich），但仍会写出 `metadata_noqa/`（每条输入一行）。 |
+| `to_metadata` | bool | `true` | 为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich）。是否写出 `metadata_noqa/` 见 `persist_noqa`。 |
+| `persist_noqa` | bool 或省略 | （见上文） | 控制是否写出 `metadata_noqa/`；上游/raw 起点若需省盘可设 `false`，仍会内存中完成转换并写 `metadata_qa`/training（在其它开关允许时）。 |
 | `ensure_qa` | bool | `false` | 生成 `qa_items`（需要 `--qa-config` 或 `global.qa_config`）。`metadata_qa/` 仅在 `qa_items` 非空时追加对应行。 |
 | `export_training` | bool | `false` | 输出训练 bundle（需要 `ensure_qa` 先产出 QA，或输入本身已带 `qa_items`）。 |
 | `qa_task_name` | string | `spatial_relation_2d` | 使用的 QA 任务名（在 `qa_tasks.yaml` 中注册）。 |

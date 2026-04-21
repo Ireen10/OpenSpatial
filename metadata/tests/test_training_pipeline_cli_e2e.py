@@ -80,7 +80,7 @@ def test_training_pipeline_cli_e2e(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.e2e
 def test_training_pipeline_writes_noqa_when_ensure_qa_produces_no_items(tmp_path: Path) -> None:
-    """If ensure_qa is on and QA generation yields 0 items, still write metadata_noqa; skip metadata_qa and export."""
+    """If ensure_qa is on and QA generation yields 0 items for a line: skip metadata_qa/export for that line (default: no metadata_noqa copy when to_metadata=false)."""
     from PIL import Image
 
     rel = Path("type7/train2014/COCO_train2014_000000569667.jpg")
@@ -141,6 +141,61 @@ def test_training_pipeline_writes_noqa_when_ensure_qa_produces_no_items(tmp_path
     n_train = sum(1 for _ in train_jsonl.read_text(encoding="utf-8").splitlines() if _.strip())
     assert n_qa == 1
     assert n_train == 1
+
+
+@pytest.mark.e2e
+def test_training_pipeline_raw_start_skips_metadata_noqa_when_persist_noqa_false(tmp_path: Path) -> None:
+    """Upstream/raw path (to_metadata=true) can omit metadata_noqa on disk when persist_noqa=false."""
+    from PIL import Image
+
+    rel = Path("type7/train2014/COCO_train2014_000000569667.jpg")
+    img_path = Path("metadata/tests/fixtures/images") / rel
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    if not img_path.exists():
+        Image.new("RGB", (640, 426), color=(120, 160, 200)).save(img_path, format="JPEG", quality=90)
+
+    out_root = tmp_path / "out"
+    ds_dir = tmp_path / "datasets" / "demo_raw_skip_noqa"
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    (ds_dir / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                'name: "demo_raw_skip_noqa"',
+                f'metadata_output_root: "{(out_root / "metadata").as_posix()}"',
+                f'training_output_root: "{(out_root / "training").as_posix()}"',
+                "viz:",
+                '  image_root: "metadata/tests/fixtures/images"',
+                "adapters:",
+                "  - file_name: passthrough",
+                "    class_name: PassthroughAdapter",
+                "splits:",
+                '  - name: "train_small"',
+                '    input_type: "jsonl"',
+                "    inputs:",
+                '      - "metadata/tests/fixtures/generated/spatial_relation_2d/dense_from_fixture.metadata.jsonl"',
+                "pipelines:",
+                "  to_metadata: true",
+                "  persist_noqa: false",
+                "  ensure_qa: true",
+                "  export_training: true",
+                '  qa_task_name: "spatial_relation_2d"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from openspatial_metadata.cli import main
+
+    gcfg = "metadata/tests/configs/e2e_training_pipeline/global.yaml"
+    qcfg = "metadata/tests/configs/e2e_training_pipeline/qa_tasks.yaml"
+    main(["--config-root", str(ds_dir.parent), "--global-config", gcfg, "--qa-config", qcfg, "--progress", "none"])
+
+    md_noqa_dir = out_root / "metadata" / "demo_raw_skip_noqa" / "train_small" / "metadata_noqa"
+    assert not (md_noqa_dir / "data_000000.jsonl").is_file()
+    md_qa = out_root / "metadata" / "demo_raw_skip_noqa" / "train_small" / "metadata_qa" / "data_000000.jsonl"
+    assert md_qa.is_file()
+    assert (out_root / "training" / "demo_raw_skip_noqa" / "train_small" / "jsonl" / "data_000000.jsonl").is_file()
 
 
 @pytest.mark.e2e
