@@ -21,6 +21,7 @@ from .config.loader import (
 )
 from .config.qa_tasks import build_qa_items, load_qa_tasks_config, resolve_qa_task_params
 from .cli_phase_timing import PhaseTimer, format_timing_lines, timed_phase
+from .io.image_archive import resolve_image_archive_path
 from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
@@ -75,6 +76,16 @@ def _tqdm(*args, **kwargs):
     return _TQDM(*args, **kwargs)
 
 
+def _adapter_tar_path_for_part(split: Any, part_id: int, dataset_config_path: str) -> Optional[str]:
+    """If ``split.image_archive_pattern`` is set, return absolute path to that shard's ``.tar``."""
+    pattern = getattr(split, "image_archive_pattern", None)
+    if not isinstance(pattern, str) or not pattern.strip():
+        return None
+    base = Path(dataset_config_path).resolve().parent
+    p = resolve_image_archive_path(pattern.strip(), int(part_id), base)
+    return str(p)
+
+
 def _instantiate_one_adapter(
     spec: Any,
     ds: Any,
@@ -84,6 +95,7 @@ def _instantiate_one_adapter(
     coord_space: str,
     coord_scale: int,
     dataset_config_path: Optional[str] = None,
+    image_tar_path: Optional[str] = None,
 ) -> Optional[object]:
     module_name = spec.module
     class_name = spec.class_name or getattr(spec, "class_", None)
@@ -137,6 +149,8 @@ def _instantiate_one_adapter(
 
         if "image_root" in params and "image_root" not in kwargs and dataset_config_path:
             kwargs["image_root"] = _resolved_image_root_for_adapter(ds, dataset_config_path)
+        if image_tar_path is not None and "image_tar_path" in params:
+            kwargs["image_tar_path"] = image_tar_path
     except Exception:
         kwargs = {}
 
@@ -156,6 +170,7 @@ def _make_adapter_factory(
     coord_space: str,
     coord_scale: int,
     dataset_config_path: Optional[str] = None,
+    image_tar_path: Optional[str] = None,
 ) -> Callable[[], Optional[object]]:
     """
     Build a per-call adapter factory. Returns None when no adapter spec present.
@@ -176,6 +191,7 @@ def _make_adapter_factory(
                 coord_space=coord_space,
                 coord_scale=coord_scale,
                 dataset_config_path=dataset_config_path,
+                image_tar_path=image_tar_path,
             )
             if inst is not None:
                 instances.append(inst)
@@ -542,6 +558,8 @@ def _finalize_training_export_for_split(
     dataset_path: str,
     rows_per_part: int,
     row_align: int,
+    image_archive_pattern: Optional[str] = None,
+    image_archive_base_dir: Optional[str] = None,
 ) -> None:
     if not enable_export:
         return
@@ -576,6 +594,8 @@ def _finalize_training_export_for_split(
             rows_per_part=rows_per_part,
             row_align=row_align,
             on_shard_progress=on_shard_progress,
+            image_archive_pattern=image_archive_pattern,
+            image_archive_base_dir=image_archive_base_dir,
         )
     finally:
         if bar is not None:
@@ -820,7 +840,7 @@ def _process_jsonl_files_parallel(
     strict: bool,
     output_root: Path,
     checkpoint_root: Path,
-    adapter_factory: Callable[[], Optional[object]],
+    build_adapter_factory: Callable[[int], Callable[[], Optional[object]]],
     relations_2d: bool,
     ds: Any,
     split_name: str,
@@ -850,7 +870,7 @@ def _process_jsonl_files_parallel(
                 output_root=output_root,
                 checkpoint_root=checkpoint_root,
                 tqdm_pos=slot,
-                adapter_factory=adapter_factory,
+                adapter_factory=build_adapter_factory(part_id),
                 relations_2d=relations_2d,
                 ds=ds,
                 split_name=split_name,
@@ -886,7 +906,7 @@ def _process_jsonl_files_parallel(
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
                         tqdm_pos=slot,
-                        adapter_factory=adapter_factory,
+                        adapter_factory=build_adapter_factory(part_id),
                         relations_2d=relations_2d,
                         ds=ds,
                         split_name=split_name,
@@ -1085,7 +1105,7 @@ def _process_jsonl_files_training_parallel(
     resume: bool,
     output_root: Path,
     checkpoint_root: Path,
-    adapter_factory: Callable[[], Optional[object]],
+    build_adapter_factory: Callable[[int], Callable[[], Optional[object]]],
     relations_2d: bool,
     ds: Any,
     split_name: str,
@@ -1113,7 +1133,7 @@ def _process_jsonl_files_training_parallel(
                 resume=resume,
                 output_root=output_root,
                 checkpoint_root=checkpoint_root,
-                adapter_factory=adapter_factory,
+                adapter_factory=build_adapter_factory(part_id),
                 relations_2d=relations_2d,
                 ds=ds,
                 split_name=split_name,
@@ -1154,7 +1174,7 @@ def _process_jsonl_files_training_parallel(
                         resume=resume,
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
-                        adapter_factory=adapter_factory,
+                        adapter_factory=build_adapter_factory(part_id2),
                         relations_2d=relations_2d,
                         ds=ds,
                         split_name=split_name,
@@ -1260,14 +1280,17 @@ def main(argv=None) -> None:
         for split in ds.splits:
             if remaining_total is not None and remaining_total <= 0:
                 break
-            adapter_factory = _make_adapter_factory(
-                ds,
-                g,
-                split_name=split.name,
-                coord_space="norm_0_999",
-                coord_scale=int(getattr(g, "scale", 1000)),
-                dataset_config_path=str(cfg_path),
-            )
+            def build_adapter_factory(part_id: int) -> Callable[[], Optional[object]]:
+                return _make_adapter_factory(
+                    ds,
+                    g,
+                    split_name=split.name,
+                    coord_space="norm_0_999",
+                    coord_scale=int(getattr(g, "scale", 1000)),
+                    dataset_config_path=str(cfg_path),
+                    image_tar_path=_adapter_tar_path_for_part(split, int(part_id), str(cfg_path)),
+                )
+
             files = [Path(p) for p in expand_inputs(split.inputs)]
             remaining: Optional[int] = None
             if max_records_per_split > 0:
@@ -1314,7 +1337,7 @@ def main(argv=None) -> None:
                             resume=resume,
                             output_root=output_root,
                             checkpoint_root=checkpoint_root,
-                            adapter_factory=adapter_factory,
+                            build_adapter_factory=build_adapter_factory,
                             relations_2d=rel2d,
                             ds=ds,
                             split_name=split.name,
@@ -1337,7 +1360,7 @@ def main(argv=None) -> None:
                                 resume=resume,
                                 output_root=output_root,
                                 checkpoint_root=checkpoint_root,
-                                adapter_factory=adapter_factory,
+                                adapter_factory=build_adapter_factory(part_id),
                                 relations_2d=rel2d,
                                 ds=ds,
                                 split_name=split.name,
@@ -1368,6 +1391,8 @@ def main(argv=None) -> None:
                             dataset_path=cfg_path,
                             rows_per_part=rows_pt,
                             row_align=row_al,
+                            image_archive_pattern=getattr(split, "image_archive_pattern", None),
+                            image_archive_base_dir=str(Path(cfg_path).resolve().parent),
                         )
                 else:
                     if eff > 1:
@@ -1381,7 +1406,7 @@ def main(argv=None) -> None:
                             strict=g.strict,
                             output_root=output_root,
                             checkpoint_root=checkpoint_root,
-                            adapter_factory=adapter_factory,
+                            build_adapter_factory=build_adapter_factory,
                             relations_2d=rel2d,
                             ds=ds,
                             split_name=split.name,
@@ -1404,7 +1429,7 @@ def main(argv=None) -> None:
                                 strict=g.strict,
                                 output_root=output_root,
                                 checkpoint_root=checkpoint_root,
-                                adapter_factory=adapter_factory,
+                                adapter_factory=build_adapter_factory(part_id),
                                 relations_2d=rel2d,
                                 ds=ds,
                                 split_name=split.name,
@@ -1432,7 +1457,7 @@ def main(argv=None) -> None:
                         resume=resume,
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
-                        adapter_factory=adapter_factory,
+                        adapter_factory=build_adapter_factory(0),
                         relations_2d=rel2d,
                         ds=ds,
                         split_name=split.name,
@@ -1446,7 +1471,7 @@ def main(argv=None) -> None:
                         resume=resume,
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
-                        adapter_factory=adapter_factory,
+                        adapter_factory=build_adapter_factory(0),
                         relations_2d=rel2d,
                         ds=ds,
                         split_name=split.name,

@@ -11,9 +11,12 @@ metadata_output_root: "metadata_out"
 training_output_root: "training_out"
 
 viz:
-  # Optional. Root directory for original images (used by openspatial-metadata-viz /api/image).
+  # Optional. Root directory for unpacked original images (openspatial-metadata-viz /api/image;
+  # training export when no per-split tar pattern is set).
   # If relative, resolved against this dataset.yaml directory.
   image_root: "path/to/images_root"
+  # Alternative: keep images in per-shard .tar archives and set `image_archive_pattern` on each
+  # split (see `splits:` below). Tar member paths must match `sample.image.path`.
 
 # Optional adapters chain. Use this when your input is raw and needs conversion,
 # or when you want to add post-processing (e.g. LLM-based phrase/category refresh).
@@ -29,6 +32,10 @@ splits:
     input_type: "jsonl"
     inputs:
       - "path/to/raw_or_metadata_input.jsonl"
+    # Optional: load images from one .tar per input shard instead of `viz.image_root`.
+    # Pattern uses Python str.format; `{shard:06d}` matches the shard id in `data_{shard:06d}.jsonl`.
+    # Relative paths resolve against this dataset.yaml directory.
+    # image_archive_pattern: "archives/part_{shard:06d}.tar"
 
 pipelines:
   # Stage switches (optional; defaults shown in comments):

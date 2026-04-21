@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from PIL import Image
 
 from openspatial_metadata.export.grouping import group_qa_items, visual_group_key
 from openspatial_metadata.export.paths import training_image_relpath
 from openspatial_metadata.export.records import build_training_line
+from openspatial_metadata.io.image_archive import load_pil_for_metadata
 from openspatial_metadata.export.render import render_group_image_jpeg
 from openspatial_metadata.export.tar_bundle import write_tar_and_tarinfo, write_tarinfo_json
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
@@ -26,18 +27,11 @@ def _objects_by_id(md: MetadataV0) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def _resolve_image_path(md: MetadataV0, image_root: Union[str, Path]) -> Path:
-    rel = md.sample.image.path
-    p = Path(rel)
-    if p.is_absolute():
-        return p
-    return Path(image_root) / rel
-
-
 def export_metadata_to_training_bundle(
     md: MetadataV0,
     *,
-    image_root: Union[str, Path],
+    image_root: Optional[Union[str, Path]] = None,
+    image_tar_path: Optional[Union[str, Path]] = None,
     output_root: Union[str, Path],
     bundle_id: int = 0,
     part_id: int = 0,
@@ -49,21 +43,20 @@ def export_metadata_to_training_bundle(
 
     ``part_id`` is deprecated; use ``bundle_id`` (same meaning).
 
-    Requires non-empty ``md.qa_items`` and a readable RGB image at
-    ``image_root / sample.image.path`` (unless path is absolute).
+    Requires non-empty ``md.qa_items`` and a readable RGB image from
+    ``image_root / sample.image.path`` or from member ``sample.image.path`` inside ``image_tar_path``
+    (unless ``sample.image.path`` is absolute).
     """
     if part_id != 0 and bundle_id == 0:
         bundle_id = part_id
     if not md.qa_items:
         raise ValueError("metadata.qa_items is empty; populate QA before export")
 
-    out = Path(output_root)
-    img_path = _resolve_image_path(md, image_root)
-    if not img_path.is_file():
-        raise FileNotFoundError(f"image not found: {img_path}")
+    if (image_root is None) == (image_tar_path is None):
+        raise ValueError("export_metadata_to_training_bundle: pass exactly one of image_root or image_tar_path")
 
-    with Image.open(img_path) as im_f:
-        pil = im_f.convert("RGB").copy()
+    out = Path(output_root)
+    pil = load_pil_for_metadata(md, image_root=image_root, tar_path=image_tar_path)
     width, height = pil.size
     obj_map = _objects_by_id(md)
     coord_scale = int(getattr(md.sample.image, "coord_scale", 1000) or 1000)
@@ -112,7 +105,10 @@ def export_metadata_to_training_bundle(
 
 
 def build_training_members_and_rows(
-    md: MetadataV0, *, image_root: Union[str, Path]
+    md: MetadataV0,
+    *,
+    image_root: Optional[Union[str, Path]] = None,
+    image_tar_path: Optional[Union[str, Path]] = None,
 ) -> Tuple[List[Tuple[str, bytes]], List[Dict[str, Any]]]:
     """
     Pure-ish helper: for one metadata record with qa_items, render group images and build training rows.
@@ -120,12 +116,9 @@ def build_training_members_and_rows(
     """
     if not md.qa_items:
         raise ValueError("metadata.qa_items is empty; populate QA before export")
-    img_path = _resolve_image_path(md, image_root)
-    if not img_path.is_file():
-        raise FileNotFoundError(f"image not found: {img_path}")
-
-    with Image.open(img_path) as im_f:
-        pil = im_f.convert("RGB").copy()
+    if (image_root is None) == (image_tar_path is None):
+        raise ValueError("build_training_members_and_rows: pass exactly one of image_root or image_tar_path")
+    pil = load_pil_for_metadata(md, image_root=image_root, tar_path=image_tar_path)
     width, height = pil.size
     obj_map = _objects_by_id(md)
     coord_scale = int(getattr(md.sample.image, "coord_scale", 1000) or 1000)

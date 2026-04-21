@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from openspatial_metadata.export.paths import disambiguate_relpath
 from openspatial_metadata.export.run import build_training_members_and_rows
 from openspatial_metadata.export.stream import TrainingBundleWriter, bundle_paths
+from openspatial_metadata.io.image_archive import resolve_image_archive_path
 from openspatial_metadata.schema.metadata_v0 import MetadataV0
 
 _SHARD_RE = re.compile(r"^data_(\d{6})\.jsonl$")
@@ -70,9 +71,11 @@ def export_training_bundles_from_metadata_qa(
     *,
     metadata_qa_dir: Path,
     bundle_root: Path,
-    image_root: Union[str, Path],
     rows_per_part: int,
     row_align: int,
+    image_root: Optional[Union[str, Path]] = None,
+    image_archive_pattern: Optional[str] = None,
+    image_archive_base_dir: Optional[Union[str, Path]] = None,
     on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
 ) -> int:
     """
@@ -88,6 +91,16 @@ def export_training_bundles_from_metadata_qa(
     if rows_per_part % row_align != 0:
         raise ValueError(f"rows_per_part ({rows_per_part}) must be a multiple of row_align ({row_align})")
 
+    use_tar = isinstance(image_archive_pattern, str) and image_archive_pattern.strip()
+    if use_tar:
+        if not image_archive_base_dir:
+            raise ValueError("image_archive_base_dir is required when image_archive_pattern is set")
+        archive_base = Path(image_archive_base_dir).resolve()
+    else:
+        if image_root is None:
+            raise ValueError("image_root is required when image_archive_pattern is not set")
+        image_root_p = Path(image_root)
+
     shards = _sorted_metadata_qa_shards(metadata_qa_dir)
     if not shards:
         return 0
@@ -95,7 +108,6 @@ def export_training_bundles_from_metadata_qa(
     n_shards = len(shards)
     buffer: List[Tuple[str, bytes, Dict[str, Any], int]] = []
     bundle_id = 0
-    image_root = Path(image_root)
 
     def emit_chunk(n: int) -> None:
         nonlocal bundle_id, buffer
@@ -109,6 +121,13 @@ def export_training_bundles_from_metadata_qa(
     for si, shard_path in enumerate(shards):
         if on_shard_progress is not None:
             on_shard_progress(si, n_shards, shard_path)
+        m_shard = _SHARD_RE.match(shard_path.name)
+        shard_id = int(m_shard.group(1)) if m_shard else si
+        tar_path: Optional[Path] = None
+        if use_tar:
+            tar_path = resolve_image_archive_path(image_archive_pattern.strip(), shard_id, archive_base)
+            if not tar_path.is_file():
+                raise FileNotFoundError(f"image archive for shard {shard_id:06d} not found: {tar_path}")
         with shard_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -120,7 +139,10 @@ def export_training_bundles_from_metadata_qa(
                     continue
                 ref = (md.aux or {}).get("record_ref") or {}
                 input_index = int(ref.get("input_index", 0))
-                members, rows = build_training_members_and_rows(md, image_root=image_root)
+                if use_tar:
+                    members, rows = build_training_members_and_rows(md, image_tar_path=tar_path)
+                else:
+                    members, rows = build_training_members_and_rows(md, image_root=image_root_p)
                 for (rel, data), row in zip(members, rows):
                     buffer.append((rel, data, row, input_index))
                 while len(buffer) >= rows_per_part:
@@ -156,7 +178,9 @@ def export_training_bundles_for_split(
     training_root: Path,
     dataset_name: str,
     split_name: str,
-    image_root: Union[str, Path],
+    image_root: Optional[Union[str, Path]] = None,
+    image_archive_pattern: Optional[str] = None,
+    image_archive_base_dir: Optional[Union[str, Path]] = None,
     rows_per_part: int,
     row_align: int,
     on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
@@ -176,8 +200,10 @@ def export_training_bundles_for_split(
     return export_training_bundles_from_metadata_qa(
         metadata_qa_dir=qa_dir,
         bundle_root=bundle_root,
-        image_root=image_root,
         rows_per_part=rows_per_part,
         row_align=row_align,
+        image_root=image_root,
+        image_archive_pattern=image_archive_pattern,
+        image_archive_base_dir=image_archive_base_dir,
         on_shard_progress=on_shard_progress,
     )

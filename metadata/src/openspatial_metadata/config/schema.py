@@ -27,6 +27,11 @@ class SplitSpec(BaseModel):
     input_type: Literal["jsonl", "json_files"]
     # For jsonl: list of files/globs/patterns; for json_files: one or more globs
     inputs: List[str]
+    # Optional: per-input-shard ``.tar`` of images (member paths = ``sample.image.path``).
+    # Use Python format with ``{shard}`` / ``{shard:06d}``; *shard* matches ``data_{shard:06d}.jsonl`` part index.
+    # Relative paths resolve against this dataset.yaml directory. When set, training export and
+    # vision adapters read images from the tar for that shard instead of ``viz.image_root``.
+    image_archive_pattern: Optional[str] = None
 
 
 class VizSpec(BaseModel):

@@ -34,8 +34,8 @@ enrich:
   relations_3d: false
 
 viz:
-  # Optional. Used only by openspatial-metadata-viz to load original images.
-  # If relative, it is resolved against the dataset.yaml directory.
+  # Optional. Unpacked images for viz; training export uses this unless a split sets
+  # `image_archive_pattern` (per-shard .tar). If relative, resolved against dataset.yaml.
   image_root: "path/to/images_root"
 
 splits:
@@ -43,6 +43,8 @@ splits:
     input_type: "jsonl"
     inputs:
       - "path/to/raw_input.jsonl"
+    # Optional: per-shard image tar — `{shard:06d}` aligns with `data_{shard:06d}.jsonl`.
+    # image_archive_pattern: "archives/part_{shard:06d}.tar"
 
 pipelines:
   # Stage switches (all optional; defaults shown):

@@ -25,6 +25,7 @@ from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageFont
 
+from openspatial_metadata.io.image_archive import load_pil_from_tar
 from openspatial_metadata.llm.openai_compatible import OpenAICompatibleChatClient
 
 
@@ -232,6 +233,8 @@ class ExpressionRefreshQwenAdapter:
         coord_space: str = "norm_0_999",
         coord_scale: int = 1000,
         image_root: Optional[str] = None,
+        # If set (CLI: split.image_archive_pattern), load ``sample.image.path`` from this tar for the current input shard.
+        image_tar_path: Optional[str] = None,
         base_url: str = "http://127.0.0.1:8000/v1",
         model: str = "qwen3-vl-32b-instruct",
         api_key: str = "",
@@ -251,6 +254,7 @@ class ExpressionRefreshQwenAdapter:
         self.coord_space = coord_space
         self.coord_scale = int(coord_scale)
         self.image_root = image_root
+        self.image_tar_path = image_tar_path
         self.model = model
         self.temperature = float(temperature)
         self.max_tokens = int(max_tokens)
@@ -334,14 +338,35 @@ class ExpressionRefreshQwenAdapter:
 
         drop_ids: set[str] = set()
 
-        if img_path is None or not img_path.is_file():
-            stats["errors"].append({"code": "missing_image", "path": str(img_path) if img_path else None})
+        sample = out.get("sample") or {}
+        img_meta = sample.get("image") or {} if isinstance(sample, dict) else {}
+        rel_raw = img_meta.get("path") if isinstance(img_meta, dict) else None
+        rel_str = rel_raw if isinstance(rel_raw, str) else ""
+
+        try:
+            if isinstance(rel_str, str) and rel_str.strip() and Path(rel_str).is_absolute():
+                ap = Path(rel_str)
+                if not ap.is_file():
+                    raise FileNotFoundError(str(ap))
+                with Image.open(ap) as im_f:
+                    base_rgb = im_f.convert("RGB").copy()
+            elif self.image_tar_path:
+                if not Path(self.image_tar_path).is_file():
+                    raise FileNotFoundError(self.image_tar_path)
+                base_rgb = load_pil_from_tar(self.image_tar_path, rel_str).copy()
+            else:
+                if img_path is None or not img_path.is_file():
+                    stats["errors"].append({"code": "missing_image", "path": str(img_path) if img_path else None})
+                    aux["expression_refresh"] = stats
+                    out["aux"] = aux
+                    return out
+                with Image.open(img_path) as im_f:
+                    base_rgb = im_f.convert("RGB").copy()
+        except OSError as exc:
+            stats["errors"].append({"code": "missing_image", "path": str(exc)})
             aux["expression_refresh"] = stats
             out["aux"] = aux
             return out
-
-        with Image.open(img_path) as im_f:
-            base_rgb = im_f.convert("RGB").copy()
 
         sem = _get_global_llm_semaphore(self.llm_max_concurrency) if self.llm_max_concurrency > 0 else None
 

@@ -11,7 +11,8 @@ metadata_output_root: "metadata_out"   # optional
 training_output_root: "training_out"   # optional
 
 viz:
-  # Required for export_training and for expression_refresh_qwen to load original images.
+  # Unpacked image tree for vision adapters / training export, unless the split sets
+  # `image_archive_pattern` (per-shard .tar; members = `sample.image.path`).
   # If relative, resolved against this dataset.yaml directory.
   image_root: "path/to/images_root"
 
@@ -30,7 +31,8 @@ adapters:
   - file_name: expression_refresh_qwen
     class_name: ExpressionRefreshQwenAdapter
     params:
-      # Optional override. If omitted, CLI will pass image_root resolved from `viz.image_root`.
+      # Optional override. If omitted, CLI passes `viz.image_root` or the current shard tar when
+      # `split.image_archive_pattern` is set.
       # image_root: "path/to/images_root"
       # Optional LLM overrides (otherwise use global.llm):
       # base_url: "http://127.0.0.1:8000/v1"
@@ -59,6 +61,8 @@ splits:
     input_type: "jsonl"
     inputs:
       - "path/to/grounding_chat.jsonl"
+    # Optional: images in `part_{shard:06d}.tar` next to dataset.yaml (or under a subdir).
+    # image_archive_pattern: "archives/part_{shard:06d}.tar"
 
 pipelines:
   to_metadata: true
