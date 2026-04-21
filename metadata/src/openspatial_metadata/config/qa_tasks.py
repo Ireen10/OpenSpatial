@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -62,6 +63,19 @@ def resolve_qa_task_params(
     return base
 
 
+def _build_spatial_relation_2d_items(md: Any, *, params: Dict[str, Any]) -> List[Any]:
+    from openspatial_metadata.qa.spatial_relation_2d import config_from_params, generate_spatial_relation_2d_qa_items
+
+    return generate_spatial_relation_2d_qa_items(md, cfg=config_from_params(params))
+
+
+def _build_items_via_convention(md: Any, *, qa_task_name: str, params: Dict[str, Any]) -> List[Any]:
+    mod = import_module(f"openspatial_metadata.qa.{qa_task_name}")
+    cfg_fn = getattr(mod, "config_from_params")
+    gen_fn = getattr(mod, f"generate_{qa_task_name}_qa_items")
+    return gen_fn(md, cfg=cfg_fn(params))
+
+
 def build_qa_items(md: Any, *, qa_task_name: str, params: Dict[str, Any]) -> List[Any]:
     """
     Dispatch QA generation by task name/type. Returns a list of AnnotationQaItemV0.
@@ -69,9 +83,12 @@ def build_qa_items(md: Any, *, qa_task_name: str, params: Dict[str, Any]) -> Lis
     This keeps the CLI/runner generic while letting QA implementations live under ``openspatial_metadata.qa``.
     """
     spec = params  # already merged defaults+overrides
-    if qa_task_name == "spatial_relation_2d":
-        from openspatial_metadata.qa.spatial_relation_2d import config_from_params, generate_spatial_relation_2d_qa_items
-
-        return generate_spatial_relation_2d_qa_items(md, cfg=config_from_params(spec))
-    raise KeyError(f"Unsupported qa_task_name: {qa_task_name}")
+    explicit_builders = {"spatial_relation_2d": _build_spatial_relation_2d_items}
+    builder = explicit_builders.get(qa_task_name)
+    if builder is not None:
+        return builder(md, params=spec)
+    try:
+        return _build_items_via_convention(md, qa_task_name=qa_task_name, params=spec)
+    except (ImportError, AttributeError) as exc:
+        raise KeyError(f"Unsupported qa_task_name: {qa_task_name}") from exc
 

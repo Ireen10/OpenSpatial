@@ -5,13 +5,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from openspatial_metadata.schema.metadata_v0 import MetadataV0
+from openspatial_metadata.utils.pydantic_compat import model_validate_compat
 
 
 def _validate_metadata_v0_dict(payload: Dict[str, Any]) -> None:
-    if hasattr(MetadataV0, "model_validate"):
-        MetadataV0.model_validate(payload)
-    else:
-        MetadataV0.parse_obj(payload)
+    model_validate_compat(MetadataV0, payload)
 
 
 class ChainedAdapter:

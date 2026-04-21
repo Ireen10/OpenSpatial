@@ -19,7 +19,7 @@ def _dedup_key(obj: Dict[str, Any], *, key_mode: KeyMode) -> Optional[Tuple[Any,
         return None
     try:
         b = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if key_mode == "bbox":
         return (b,)

@@ -19,6 +19,7 @@ from openspatial_metadata.export.run import build_training_members_and_rows
 from openspatial_metadata.export.stream import TrainingBundleWriter, bundle_paths
 from openspatial_metadata.io.image_archive import resolve_image_archive_path
 from openspatial_metadata.schema.metadata_v0 import MetadataV0
+from openspatial_metadata.utils.pydantic_compat import model_validate_compat
 
 _SHARD_RE = re.compile(r"^data_(\d{6})\.jsonl$")
 
@@ -134,7 +135,7 @@ def export_training_bundles_from_metadata_qa(
                 if not line:
                     continue
                 payload = json.loads(line)
-                md = MetadataV0.parse_obj(payload)
+                md = model_validate_compat(MetadataV0, payload)
                 if not md.qa_items:
                     continue
                 ref = (md.aux or {}).get("record_ref") or {}

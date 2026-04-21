@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 import yaml
 
 from .schema import AdapterSpec, DatasetConfig, GlobalConfig
+from openspatial_metadata.utils.pydantic_compat import model_validate_compat
 
 
 PathLike = Union[str, Path]
@@ -76,7 +77,7 @@ def load_global_config(path: Optional[PathLike]) -> GlobalConfig:
         return GlobalConfig()
     p = Path(path)
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    return GlobalConfig.parse_obj(data)
+    return model_validate_compat(GlobalConfig, data)
 
 
 def load_dataset_config(path: PathLike) -> DatasetConfig:
@@ -84,7 +85,7 @@ def load_dataset_config(path: PathLike) -> DatasetConfig:
     if p.is_dir():
         p = p / "dataset.yaml"
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    return DatasetConfig.parse_obj(data)
+    return model_validate_compat(DatasetConfig, data)
 
 
 def discover_dataset_configs(config_root: PathLike) -> List[str]:

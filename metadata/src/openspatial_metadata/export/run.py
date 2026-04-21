@@ -15,12 +15,13 @@ from openspatial_metadata.io.image_archive import load_pil_for_metadata
 from openspatial_metadata.export.render import render_group_image_jpeg
 from openspatial_metadata.export.tar_bundle import write_tar_and_tarinfo, write_tarinfo_json
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
+from openspatial_metadata.utils.pydantic_compat import model_dump_compat, model_validate_compat
 
 
 def _objects_by_id(md: MetadataV0) -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}
     for o in md.objects:
-        d = o.dict() if hasattr(o, "dict") else o.model_dump()
+        d = model_dump_compat(o)
         oid = d.get("object_id")
         if isinstance(oid, str):
             out[oid] = d
@@ -56,38 +57,11 @@ def export_metadata_to_training_bundle(
         raise ValueError("export_metadata_to_training_bundle: pass exactly one of image_root or image_tar_path")
 
     out = Path(output_root)
-    pil = load_pil_for_metadata(md, image_root=image_root, tar_path=image_tar_path)
-    width, height = pil.size
-    obj_map = _objects_by_id(md)
-    coord_scale = int(getattr(md.sample.image, "coord_scale", 1000) or 1000)
-
-    groups = group_qa_items(md.qa_items)
-    members: List[tuple] = []
-    lines: List[Dict[str, Any]] = []
-
-    base_rel = md.sample.image.path
-    if not isinstance(base_rel, str) or not base_rel.strip():
-        raise ValueError("metadata.sample.image.path must be a non-empty string")
-
-    for group in groups:
-        meta0 = dict(group[0].meta or {})
-        jpeg = render_group_image_jpeg(pil, meta0, obj_map, coord_scale=float(coord_scale))
-        vk = visual_group_key(meta0)
-        rel = training_image_relpath(
-            base_image_rel=base_rel,
-            meta0=meta0,
-            visual_key=vk,
-        )
-        members.append((rel, jpeg))
-        lines.append(
-            build_training_line(
-                group,
-                relative_path=rel,
-                image_width=width,
-                image_height=height,
-                record_id="",
-            )
-        )
+    members, lines = build_training_members_and_rows(
+        md,
+        image_root=image_root,
+        image_tar_path=image_tar_path,
+    )
 
     from openspatial_metadata.export.stream import bundle_paths
 
@@ -150,9 +124,7 @@ def build_training_members_and_rows(
 
 
 def _metadata_from_payload(payload: Dict[str, Any]) -> MetadataV0:
-    if hasattr(MetadataV0, "model_validate"):
-        return MetadataV0.model_validate(payload)
-    return MetadataV0.parse_obj(payload)
+    return model_validate_compat(MetadataV0, payload)
 
 
 def attach_task_result_as_qa_items(md: MetadataV0, task_row: Dict[str, Any]) -> MetadataV0:
@@ -172,8 +144,8 @@ def attach_task_result_as_qa_items(md: MetadataV0, task_row: Dict[str, Any]) -> 
                 task="spatial_relation_2d",
             )
         )
-    payload = md.dict() if hasattr(md, "dict") else md.model_dump()
+    payload = model_dump_compat(md)
     payload["qa_items"] = [
-        it.dict() if hasattr(it, "dict") else it.model_dump() for it in items
+        model_dump_compat(it) for it in items
     ]
     return _metadata_from_payload(payload)

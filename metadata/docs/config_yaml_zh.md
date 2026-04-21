@@ -34,10 +34,10 @@
 | `metadata_output_root` | string | `metadata_out` | **metadata 输出根目录**。CLI `--output-root` 可覆盖（仅覆盖 metadata）。其下会按 `数据集名 / split 名` 建子目录。 |
 | `training_output_root` | string, 可选 | `null` | **训练数据输出根目录**（training bundle）。dataset 可覆盖；若 dataset 也未配置，则回退到 `metadata_output_root`。 |
 | `scale` | int | `1000` | 归一化坐标刻度（与 metadata v0 中 `coord_scale` 等概念对齐）；当前 CLI 主流程中未强依赖，供后续与工具函数使用。 |
-| `batch_size` | int | `1000` | JSONL 写出时**攒批条数**：每满一批写盘并更新 checkpoint（JSONL）。 |
+| `batch_size` | int | `1000` | JSONL 路径统一的**攒批条数**：每满一批执行写盘并更新 checkpoint。该规则同时适用于 metadata-only 路径与 training pipeline 里的 `metadata_noqa/metadata_qa` shard 写出。 |
 | `num_workers` | int | `0` | 与 CLI `--num-workers` 合并得到**基础并行度**，再与展开后的输入文件数、硬顶 `32` 取最小值得到有效并行度 `effective`（见下文「并行与 `num_workers`」）。`effective <= 1` 时不创建线程池，整段 split 顺序执行。 |
 | `resume` | bool | `false` | 为 `true` 时启用 checkpoint **续跑**（与 CLI `--resume` 合并为「任一为真即续跑」）。 |
-| `strict` | bool | `true` | **遇错即停**（本轮仅支持 `true`）：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。CLI **不提供** `strict=False`。 |
+| `strict` | bool | `true` | **兼容保留字段，必须为 `true`**。当前 CLI 固定为遇错即停：并行或顺序路径下，worker / 读入失败会打印 **stderr** 并以**退出码 1** 结束；失败前已 **flush** 的批次会照常写盘并更新对应 checkpoint。若配置为 `false`，CLI 会直接报错。 |
 | `qa_config` | string, 可选 | `null` | 全局 QA 任务注册表 YAML 路径（例如 `metadata/templates/configs_minimal/qa_tasks.yaml`）。可被 CLI `--qa-config` 覆盖。仅在启用 dataset `pipelines.ensure_qa` / `pipelines.export_training` 路径时需要。 |
 | `llm` | mapping, 可选 | `null` | 全局 LLM 默认连接参数（OpenAI 兼容 `POST /v1/chat/completions`），用于需要 LLM 的 adapter（例如 `ExpressionRefreshQwenAdapter`）。**仅当适配器构造函数存在同名参数时**才会注入；dataset 侧 `AdapterSpec.params` 会覆盖同名键。常用键：`base_url`（含 `/v1`）、`model`、`api_key`、`timeout_s`、`temperature`、`max_tokens`、`llm_parallelism`、`llm_max_concurrency`。 |
 | `training_rows_per_part` | int | `1024` | **仅训练导出**：从 `metadata_qa/data_*.jsonl` 汇总训练行后，每个 bundle（`images/data_*.tar` 等）内 **JSONL 行数** 目标上限；必须能被 `training_row_align` 整除。 |

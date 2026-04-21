@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
 from openspatial_metadata.prompt_templates import spatial_relation_2d_prompt_templates as tpl
 from openspatial_metadata.qa.runtime_stats import record_spatial_relation_2d_qa_stats
+from openspatial_metadata.utils.pydantic_compat import model_dump_compat
 
 
 FULL_SENTENCE = "full_sentence"
@@ -151,7 +152,7 @@ class SpatialRelation2DConfig:
 def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelation2DConfig) -> List[AnnotationQaItemV0]:
     rng = random.Random(cfg.random_seed)
 
-    objects = [o.dict() if hasattr(o, "dict") else o.model_dump() for o in (md.objects or [])]
+    objects = [model_dump_compat(o) for o in (md.objects or [])]
     object_map = {o.get("object_id"): o for o in objects if isinstance(o, dict) and isinstance(o.get("object_id"), str)}
     name_counts: Dict[str, int] = {}
     for o in object_map.values():
@@ -161,7 +162,7 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
 
     candidates: List[dict] = []
     for rel in (md.relations or []):
-        r = rel.dict() if hasattr(rel, "dict") else rel.model_dump()
+        r = model_dump_compat(rel)
         if r.get("ref_frame") != "image_plane":
             continue
         if not r.get("relation_id"):

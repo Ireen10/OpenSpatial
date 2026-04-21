@@ -56,7 +56,6 @@ def test_records_parallelism_preserves_order_and_checkpoint() -> None:
             records_parallelism=4,
             max_records=None,
             resume=False,
-            strict=True,
             output_root=out_root,
             checkpoint_root=checkpoint_root,
             tqdm_pos=None,

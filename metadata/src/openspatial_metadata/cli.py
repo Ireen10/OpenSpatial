@@ -26,27 +26,27 @@ from .io.image_archive import resolve_image_archive_path
 from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
+from .utils.pydantic_compat import model_dump_compat, model_validate_compat
 
 PARALLEL_WORKERS_CAP = 32
 
 
 def _md_validate(payload: Any) -> MetadataV0:
     """Pydantic v1/v2 compatible parse."""
-    if hasattr(MetadataV0, "model_validate"):
-        return MetadataV0.model_validate(payload)
-    return MetadataV0.parse_obj(payload)
+    return model_validate_compat(MetadataV0, payload)
 
 
 def _md_dump(md: MetadataV0) -> Dict[str, Any]:
-    if hasattr(md, "model_dump"):
-        return md.model_dump()
-    return md.dict()
+    return model_dump_compat(md)
+
+
+def _md_dump_timed(md: Any, *, phase_timer: Optional[PhaseTimer]) -> Dict[str, Any]:
+    with timed_phase(phase_timer, "metadata_dump"):
+        return model_dump_compat(md)
 
 
 def _qa_item_dump(it: Any) -> Dict[str, Any]:
-    if hasattr(it, "model_dump"):
-        return it.model_dump()
-    return it.dict()
+    return model_dump_compat(it)
 
 
 def _metadata_output_jsonl_name(part_id: int) -> str:
@@ -152,14 +152,21 @@ def _instantiate_one_adapter(
             kwargs["image_root"] = _resolved_image_root_for_adapter(ds, dataset_config_path)
         if image_tar_path is not None and "image_tar_path" in params:
             kwargs["image_tar_path"] = image_tar_path
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - keep backward-compatible fallback
+        _log(
+            "adapter ctor signature probe failed for "
+            f"{module_name}.{class_name}: {exc!r}; falling back to no-kwargs init"
+        )
         kwargs = {}
 
     if kwargs:
         try:
             return cls(**kwargs)
-        except TypeError:
-            pass
+        except TypeError as exc:
+            _log(
+                "adapter ctor kwargs rejected for "
+                f"{module_name}.{class_name}: {exc!r}; falling back to no-kwargs init"
+            )
     return cls()
 
 
@@ -318,7 +325,6 @@ def _process_jsonl_file(
     records_parallelism: int = 1,
     max_records: Optional[int] = None,
     resume: bool,
-    strict: bool,
     output_root: Path,
     checkpoint_root: Path,
     tqdm_pos: Optional[int] = None,
@@ -329,7 +335,6 @@ def _process_jsonl_file(
     dataset_path: str,
     phase_timer: Optional[PhaseTimer] = None,
 ) -> int:
-    del strict  # reserved for future per-record error policy
     records_parallelism = max(1, int(records_parallelism or 1))
     if max_records is not None:
         max_records = int(max_records)
@@ -365,10 +370,11 @@ def _process_jsonl_file(
             w.flush()
             if bar is None:
                 _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_to_write}")
-            _write_checkpoint_atomic(
-                ckpt_path,
-                {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0},
-            )
+            with timed_phase(phase_timer, "checkpoint_write"):
+                _write_checkpoint_atomic(
+                    ckpt_path,
+                    {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0},
+                )
         buffer.clear()
 
     if records_parallelism <= 1:
@@ -625,6 +631,7 @@ def _process_jsonl_file_training_pipeline(
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
     persist_noqa: bool,
+    batch_size: int,
     records_parallelism: int = 1,
     max_records: Optional[int] = None,
     tqdm_pos: Optional[int] = None,
@@ -639,6 +646,7 @@ def _process_jsonl_file_training_pipeline(
     ckpt = _read_checkpoint(ckpt_path, fallback=old_ckpt_path) if resume else None
     next_idx = int(ckpt.get("next_input_index", 0)) if ckpt else 0
     records_parallelism = max(1, int(records_parallelism or 1))
+    batch_size = max(1, int(batch_size or 1))
     if max_records is not None:
         max_records = int(max_records)
         if max_records <= 0:
@@ -674,9 +682,81 @@ def _process_jsonl_file_training_pipeline(
         w_noq_ctx = JsonlWriter(noq_path, append=resume and noq_path.exists()) if noq_path is not None else None
         with (w_noq_ctx or nullcontext()) as w_noq, JsonlWriter(qa_path, append=resume and qa_path.exists()) as w_qa:
             def _write_checkpoint(next_to_write: int) -> None:
-                _write_checkpoint_atomic(
-                    ckpt_path, {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0}
-                )
+                with timed_phase(phase_timer, "checkpoint_write"):
+                    _write_checkpoint_atomic(
+                        ckpt_path, {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0}
+                    )
+
+            pending_noq: List[Dict[str, Any]] = []
+            pending_qa: List[Dict[str, Any]] = []
+            pending_records = 0
+            pending_checkpoint_idx: Optional[int] = None
+
+            def _flush_pending(*, force: bool = False) -> None:
+                nonlocal pending_records, pending_checkpoint_idx
+                if pending_records <= 0:
+                    return
+                if not force and pending_records < batch_size:
+                    return
+                with timed_phase(phase_timer, "persist_shards"):
+                    if pending_noq and w_noq is not None:
+                        with timed_phase(phase_timer, "persist_noqa_write"):
+                            w_noq.write_records(pending_noq)
+                    if pending_qa:
+                        with timed_phase(phase_timer, "persist_qa_write"):
+                            w_qa.write_records(pending_qa)
+                    if pending_checkpoint_idx is not None:
+                        _write_checkpoint(int(pending_checkpoint_idx))
+                pending_noq.clear()
+                pending_qa.clear()
+                pending_records = 0
+                pending_checkpoint_idx = None
+
+            def _build_metadata_views(
+                record: Dict[str, Any],
+                *,
+                input_file: str,
+                input_index: int,
+                adapter: Optional[object],
+            ) -> Tuple[MetadataV0, MetadataV0]:
+                # Step 1: to_metadata (adapter + dataset meta + enrich)
+                with timed_phase(phase_timer, "to_metadata"):
+                    if enable_to_metadata:
+                        out = _apply_adapter(adapter, record)
+                        out.setdefault("aux", {})
+                        out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
+                        out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                    else:
+                        out = dict(record)
+
+                with timed_phase(phase_timer, "validate_metadata"):
+                    md_noqa = _md_validate(out)
+
+                # Step 2: ensure_qa (metadata-native QA generator)
+                md_qa = md_noqa
+                if enable_ensure_qa and not md_noqa.qa_items:
+                    with timed_phase(phase_timer, "qa_build"):
+                        items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                        payload = _md_dump_timed(md_noqa, phase_timer=phase_timer)
+                        payload["qa_items"] = [_qa_item_dump(it) for it in items]
+                        md_qa = _md_validate(payload)
+                return md_noqa, md_qa
+
+            def _enqueue_payloads(
+                noq_payload: Optional[Dict[str, Any]],
+                qa_payload: Optional[Dict[str, Any]],
+                *,
+                checkpoint_index: int,
+            ) -> None:
+                nonlocal pending_records, pending_checkpoint_idx
+                if noq_payload is not None:
+                    pending_noq.append(noq_payload)
+                if qa_payload is not None:
+                    pending_qa.append(qa_payload)
+                pending_records += 1
+                pending_checkpoint_idx = int(checkpoint_index)
+                _flush_pending(force=False)
 
             if records_parallelism <= 1:
                 adapter = adapter_factory()
@@ -686,47 +766,23 @@ def _process_jsonl_file_training_pipeline(
                     if max_records is not None and processed_this_run >= max_records:
                         break
 
-                    # Step 1: to_metadata (adapter + dataset meta + enrich)
-                    with timed_phase(phase_timer, "to_metadata"):
-                        if enable_to_metadata:
-                            out = _apply_adapter(adapter, record)
-                            out.setdefault("aux", {})
-                            out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-                            out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                            out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-                        else:
-                            out = dict(record)
-
-                    with timed_phase(phase_timer, "validate_metadata"):
-                        md_noqa = _md_validate(out)
-
-                    # Step 2: ensure_qa (metadata-native QA generator)
-                    md_qa = md_noqa
-                    if enable_ensure_qa and not md_noqa.qa_items:
-                        with timed_phase(phase_timer, "qa_build"):
-                            items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                            payload = _md_dump(md_noqa)
-                            payload["qa_items"] = [_qa_item_dump(it) for it in items]
-                            md_qa = _md_validate(payload)
-
-                    # Always persist the noqa view (one line per input record). When qa_items is empty, skip
-                    # metadata_qa and training export for that record (export still requires non-empty qa_items).
-                    with timed_phase(phase_timer, "persist_shards"):
-                        if w_noq is not None:
-                            w_noq.write_records([_md_dump(md_noqa)])
-
-                        # Persist the "qa" view only when there is at least 1 QA item.
-                        if md_qa.qa_items:
-                            w_qa.write_records([_md_dump(md_qa)])
-
+                    md_noqa, md_qa = _build_metadata_views(
+                        record,
+                        input_file=ref.input_file,
+                        input_index=ref.input_index,
+                        adapter=adapter,
+                    )
+                    noq_payload = _md_dump_timed(md_noqa, phase_timer=phase_timer) if w_noq is not None else None
+                    qa_payload = _md_dump_timed(md_qa, phase_timer=phase_timer) if md_qa.qa_items else None
                     next_idx = ref.input_index + 1
-                    _write_checkpoint(next_idx)
+                    _enqueue_payloads(noq_payload, qa_payload, checkpoint_index=next_idx)
 
                     if bar is not None:
                         bar.update(1)
                     elif _PROGRESS_MODE == "log" and (next_idx % 1000 == 0):
                         _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_idx}")
                     processed_this_run += 1
+                _flush_pending(force=True)
             else:
                 import threading
 
@@ -739,37 +795,19 @@ def _process_jsonl_file_training_pipeline(
                         setattr(tlocal, "adapter", a)
                     return a
 
-                def _work(record: Dict, *, input_file: str, input_index: int) -> Tuple[int, Dict, Optional[Dict]]:
+                def _work(record: Dict, *, input_file: str, input_index: int) -> Tuple[int, MetadataV0, MetadataV0]:
                     a = _thread_adapter()
-                    # Step 1: to_metadata
-                    with timed_phase(phase_timer, "to_metadata"):
-                        if enable_to_metadata:
-                            out = _apply_adapter(a, record)
-                            out.setdefault("aux", {})
-                            out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
-                            out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                            out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-                        else:
-                            out = dict(record)
-
-                    with timed_phase(phase_timer, "validate_metadata"):
-                        md_noqa = _md_validate(out)
-
-                    md_qa = md_noqa
-                    qa_payload: Optional[Dict] = None
-                    if enable_ensure_qa and not md_noqa.qa_items:
-                        with timed_phase(phase_timer, "qa_build"):
-                            items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                            payload = _md_dump(md_noqa)
-                            payload["qa_items"] = [_qa_item_dump(it) for it in items]
-                            md_qa = _md_validate(payload)
-                    if md_qa.qa_items:
-                        qa_payload = _md_dump(md_qa)
-                    return (input_index, _md_dump(md_noqa), qa_payload)
+                    md_noqa, md_qa = _build_metadata_views(
+                        record,
+                        input_file=input_file,
+                        input_index=input_index,
+                        adapter=a,
+                    )
+                    return (input_index, md_noqa, md_qa)
 
                 submitted = 0
                 next_to_write = next_idx
-                done: Dict[int, Tuple[Dict, Optional[Dict]]] = {}
+                done: Dict[int, Tuple[MetadataV0, MetadataV0]] = {}
                 inflight: Dict[Any, int] = {}
                 max_inflight = max(records_parallelism * 4, records_parallelism + 1)
                 ex = ThreadPoolExecutor(max_workers=records_parallelism)
@@ -781,17 +819,14 @@ def _process_jsonl_file_training_pipeline(
                     (finished, _pending) = wait(list(inflight.keys()), return_when=FIRST_COMPLETED)
                     for fut in list(finished):
                         _idx = inflight.pop(fut)
-                        (idx2, noq_payload, qa_payload) = fut.result()
-                        done[int(idx2)] = (noq_payload, qa_payload)
+                        (idx2, md_noqa, md_qa) = fut.result()
+                        done[int(idx2)] = (md_noqa, md_qa)
                     while next_to_write in done and (max_records is None or processed_this_run < max_records):
-                        (noq_payload, qa_payload) = done.pop(next_to_write)
-                        with timed_phase(phase_timer, "persist_shards"):
-                            if w_noq is not None:
-                                w_noq.write_records([noq_payload])
-                            if qa_payload is not None:
-                                w_qa.write_records([qa_payload])
+                        (md_noqa, md_qa) = done.pop(next_to_write)
                         next_to_write += 1
-                        _write_checkpoint(next_to_write)
+                        noq_payload = _md_dump_timed(md_noqa, phase_timer=phase_timer) if w_noq is not None else None
+                        qa_payload = _md_dump_timed(md_qa, phase_timer=phase_timer) if md_qa.qa_items else None
+                        _enqueue_payloads(noq_payload, qa_payload, checkpoint_index=next_to_write)
                         if bar is not None:
                             bar.update(1)
                         elif _PROGRESS_MODE == "log" and (next_to_write % 1000 == 0):
@@ -814,17 +849,15 @@ def _process_jsonl_file_training_pipeline(
                     while inflight and (max_records is None or processed_this_run < max_records):
                         _drain()
                     while next_to_write in done and (max_records is None or processed_this_run < max_records):
-                        (noq_payload, qa_payload) = done.pop(next_to_write)
-                        with timed_phase(phase_timer, "persist_shards"):
-                            if w_noq is not None:
-                                w_noq.write_records([noq_payload])
-                            if qa_payload is not None:
-                                w_qa.write_records([qa_payload])
+                        (md_noqa, md_qa) = done.pop(next_to_write)
                         next_to_write += 1
-                        _write_checkpoint(next_to_write)
+                        noq_payload = _md_dump_timed(md_noqa, phase_timer=phase_timer) if w_noq is not None else None
+                        qa_payload = _md_dump_timed(md_qa, phase_timer=phase_timer) if md_qa.qa_items else None
+                        _enqueue_payloads(noq_payload, qa_payload, checkpoint_index=next_to_write)
                         if bar is not None:
                             bar.update(1)
                         processed_this_run += 1
+                    _flush_pending(force=True)
                 finally:
                     ex.shutdown(wait=True, cancel_futures=False)
     finally:
@@ -841,7 +874,6 @@ def _process_jsonl_files_parallel(
     batch_size: int,
     records_parallelism: int,
     resume: bool,
-    strict: bool,
     output_root: Path,
     checkpoint_root: Path,
     build_adapter_factory: Callable[[int], Callable[[], Optional[object]]],
@@ -870,7 +902,6 @@ def _process_jsonl_files_parallel(
                 batch_size=batch_size,
                 records_parallelism=records_parallelism,
                 resume=resume,
-                strict=strict,
                 output_root=output_root,
                 checkpoint_root=checkpoint_root,
                 tqdm_pos=slot,
@@ -906,7 +937,6 @@ def _process_jsonl_files_parallel(
                         batch_size=batch_size,
                         records_parallelism=records_parallelism,
                         resume=resume,
-                        strict=strict,
                         output_root=output_root,
                         checkpoint_root=checkpoint_root,
                         tqdm_pos=slot,
@@ -1124,6 +1154,7 @@ def _process_jsonl_files_training_parallel(
     *,
     effective: int,
     records_parallelism: int,
+    batch_size: int,
     resume: bool,
     output_root: Path,
     checkpoint_root: Path,
@@ -1167,6 +1198,7 @@ def _process_jsonl_files_training_parallel(
                 enable_to_metadata=enable_to_metadata,
                 enable_ensure_qa=enable_ensure_qa,
                 persist_noqa=persist_noqa,
+                batch_size=batch_size,
                 records_parallelism=records_parallelism,
                 tqdm_pos=slot,
                 phase_timer=phase_timer,
@@ -1275,6 +1307,8 @@ def main(argv=None) -> None:
             _PROGRESS_MODE = "log"
             _log("tqdm not available; falling back to log progress")
     g = load_global_config(args.global_config)
+    if not bool(getattr(g, "strict", True)):
+        raise ValueError("Global config `strict=false` is not supported; use `strict=true`.")
     cli_workers = args.num_workers
     cli_records_parallelism = int(getattr(args, "records_parallelism", 0) or 0)
     max_records_per_split = int(getattr(args, "max_records_per_split", 0) or 0)
@@ -1374,6 +1408,7 @@ def main(argv=None) -> None:
                             enable_to_metadata=enable_to_metadata,
                             enable_ensure_qa=enable_ensure_qa,
                             persist_noqa=persist_noqa,
+                            batch_size=g.batch_size,
                             phase_timer=split_phase_timer,
                         )
                     else:
@@ -1398,6 +1433,7 @@ def main(argv=None) -> None:
                                 enable_to_metadata=enable_to_metadata,
                                 enable_ensure_qa=enable_ensure_qa,
                                 persist_noqa=persist_noqa,
+                                batch_size=g.batch_size,
                                 records_parallelism=rec_par,
                                 max_records=remaining,
                                 tqdm_pos=0,
@@ -1431,7 +1467,6 @@ def main(argv=None) -> None:
                             batch_size=g.batch_size,
                             records_parallelism=rec_par,
                             resume=resume,
-                            strict=g.strict,
                             output_root=output_root,
                             checkpoint_root=checkpoint_root,
                             build_adapter_factory=build_adapter_factory,
@@ -1454,7 +1489,6 @@ def main(argv=None) -> None:
                                 records_parallelism=rec_par,
                                 max_records=remaining,
                                 resume=resume,
-                                strict=g.strict,
                                 output_root=output_root,
                                 checkpoint_root=checkpoint_root,
                                 adapter_factory=build_adapter_factory(part_id),

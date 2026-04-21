@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 
-from openspatial_metadata.cli_phase_timing import PhaseTimer, timed_phase
+from openspatial_metadata.cli_phase_timing import PhaseTimer, format_timing_lines, timed_phase
 
 
 class TestCliPhaseTiming(unittest.TestCase):
@@ -32,3 +32,12 @@ class TestCliPhaseTiming(unittest.TestCase):
             x.join()
         snap = t.snapshot()
         self.assertEqual(int(snap["work"]["count"]), 4)
+
+    def test_format_includes_added_phase_names(self) -> None:
+        t = PhaseTimer()
+        t.add("checkpoint_write", 0.01)
+        t.add("metadata_dump", 0.02)
+        lines = format_timing_lines(label="split demo/train", wall_s=0.1, phase_timer=t, n_records=1)
+        text = "\n".join(lines)
+        self.assertIn("checkpoint_write", text)
+        self.assertIn("metadata_dump", text)
