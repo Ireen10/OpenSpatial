@@ -9,8 +9,10 @@ import yaml
 
 from openspatial_metadata.qa.runtime_stats import (
     print_and_reset_spatial_relation_2d_qa_stats,
+    print_and_reset_spatial_relation_3d_qa_stats,
     qa_stats_enabled,
     record_spatial_relation_2d_qa_stats,
+    record_spatial_relation_3d_qa_stats,
 )
 
 
@@ -69,10 +71,43 @@ def _build_spatial_relation_2d_items(md: Any, *, params: Dict[str, Any]) -> List
     return generate_spatial_relation_2d_qa_items(md, cfg=config_from_params(params))
 
 
+def _build_spatial_relation_3d_items(md: Any, *, params: Dict[str, Any]) -> List[Any]:
+    from openspatial_metadata.qa.spatial_relation_3d import config_from_params, generate_spatial_relation_3d_qa_items
+
+    return generate_spatial_relation_3d_qa_items(md, cfg=config_from_params(params))
+
+
 def _can_build_spatial_relation_2d_items(md: Any, *, params: Dict[str, Any]) -> bool:
     objects = getattr(md, "objects", None)
     relations = getattr(md, "relations", None)
     if not objects or not relations:
+        return False
+    sub_tasks = params.get("sub_tasks")
+    if isinstance(sub_tasks, dict):
+        planned = 0
+        for v in sub_tasks.values():
+            try:
+                planned += max(0, int(v))
+            except (TypeError, ValueError):
+                continue
+        if planned <= 0:
+            return False
+    return True
+
+
+def _can_build_spatial_relation_3d_items(md: Any, *, params: Dict[str, Any]) -> bool:
+    relations = getattr(md, "relations", None) or []
+    has_egocentric = False
+    for r in relations:
+        rr = r if isinstance(r, dict) else getattr(r, "__dict__", None)
+        if rr is None and hasattr(r, "ref_frame"):
+            if str(getattr(r, "ref_frame", "")) == "egocentric":
+                has_egocentric = True
+                break
+        elif isinstance(rr, dict) and str(rr.get("ref_frame") or "") == "egocentric":
+            has_egocentric = True
+            break
+    if not has_egocentric:
         return False
     sub_tasks = params.get("sub_tasks")
     if isinstance(sub_tasks, dict):
@@ -103,7 +138,12 @@ def build_qa_items(md: Any, *, qa_task_name: str, params: Dict[str, Any]) -> Lis
     spec = params  # already merged defaults+overrides
     if qa_task_name == "spatial_relation_2d" and not _can_build_spatial_relation_2d_items(md, params=spec):
         return []
-    explicit_builders = {"spatial_relation_2d": _build_spatial_relation_2d_items}
+    if qa_task_name == "spatial_relation_3d" and not _can_build_spatial_relation_3d_items(md, params=spec):
+        return []
+    explicit_builders = {
+        "spatial_relation_2d": _build_spatial_relation_2d_items,
+        "spatial_relation_3d": _build_spatial_relation_3d_items,
+    }
     builder = explicit_builders.get(qa_task_name)
     if builder is not None:
         return builder(md, params=spec)

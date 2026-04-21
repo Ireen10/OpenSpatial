@@ -61,6 +61,7 @@ def test_records_parallelism_preserves_order_and_checkpoint() -> None:
             tqdm_pos=None,
             adapter_factory=adapter_factory,
             relations_2d=False,
+            relations_3d=False,
             ds=_Ds("d"),
             split_name="s",
             dataset_path=str(tmp / "d.yaml"),

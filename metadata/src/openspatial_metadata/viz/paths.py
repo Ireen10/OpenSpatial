@@ -33,6 +33,7 @@ def safe_file_under_root(candidate: Path, root: Path) -> Optional[Path]:
 
 _METADATA_JSONL_LEGACY_SUFFIX = ".metadata.jsonl"
 _DATA_JSONL_RE = re.compile(r"^data_\d{6}\.jsonl$")
+_LINE_COUNT_CACHE: Dict[Tuple[str, int, int], int] = {}
 
 
 def _is_metadata_stage_jsonl_filename(fn: str) -> bool:
@@ -134,10 +135,18 @@ def enumerate_training_parts(training_root: Path) -> List[Dict[str, Any]]:
 
 
 def count_lines_jsonl(path: Path) -> int:
+    rp = path.resolve()
+    st = rp.stat()
+    cache_key = (str(rp), int(st.st_mtime_ns), int(st.st_size))
+    hit = _LINE_COUNT_CACHE.get(cache_key)
+    if hit is not None:
+        return hit
     n = 0
-    with path.open("rb") as f:
+    with rp.open("rb") as f:
         for _ in f:
             n += 1
+    _LINE_COUNT_CACHE.clear()
+    _LINE_COUNT_CACHE[cache_key] = n
     return n
 
 
@@ -155,9 +164,16 @@ def read_line_jsonl(path: Path, line_index: int) -> Dict[str, Any]:
     raise IndexError("line index out of range")
 
 
-def read_lines_jsonl(path: Path, *, offset: int, limit: int) -> Tuple[List[Dict[str, Any]], int]:
+def read_lines_jsonl(
+    path: Path,
+    *,
+    offset: int,
+    limit: int,
+    with_count: bool = True,
+) -> Tuple[List[Dict[str, Any]], Optional[int], bool]:
     """
-    Read a window of JSONL lines. Returns (records, total_line_count).
+    Read a window of JSONL lines.
+    Returns (records, total_line_count_or_none, has_more).
     Enforces offset>=0, limit>=1.
     """
     if offset < 0:
@@ -166,18 +182,23 @@ def read_lines_jsonl(path: Path, *, offset: int, limit: int) -> Tuple[List[Dict[
         raise ValueError("limit must be >= 1")
     total = 0
     out: List[Dict[str, Any]] = []
+    has_more = False
     with path.open(encoding="utf-8") as f:
         for i, line in enumerate(f):
-            total += 1
+            if with_count:
+                total += 1
             if i < offset:
                 continue
             if i >= offset + limit:
+                has_more = True
+                if not with_count:
+                    break
                 continue
             s = line.strip()
             if not s:
                 continue
             out.append(json.loads(s))
-    return out, total
+    return out, (total if with_count else None), has_more
 
 
 def read_tar_member_by_tarinfo(tar_path: Path, *, offset_data: int, size: int) -> bytes:

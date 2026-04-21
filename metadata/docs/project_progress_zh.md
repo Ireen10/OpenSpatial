@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-已完成 **P2 首轮落地（p2_pipeline_streaming_export）**：训练导出默认切换为可回退的流式 bundle 写出，并新增 `pipeline_streaming_enabled` / `training_remainder_mode` 参数；当前默认策略为“流式开启 + remainder drop 兼容”。下一步继续推进真正的三阶段流水并行与共享中间表示。
+已完成 **viz I/O 优化（viz_io_optimization）**：`/api/training_lines` 默认改为分页优先（`with_count=false`）并返回 `has_more`，避免每次翻页全量计数；同时为 `count_lines_jsonl` 增加缓存，降低重复统计开销。下一步继续推进 training 随机跳转索引（sidecar）与更大规模数据下的稳定体验。
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-21** | **viz I/O 优化（viz_io_optimization）**：`count_lines_jsonl` 增加缓存；`/api/training_lines` 新增 `with_count`（默认 false）与 `has_more`，前端 training 视图改为默认不依赖 `line_count`，减少大 JSONL 场景下的重复全量扫描。收束见 `metadata/plans/2026-04-21_1718_viz_io_optimization/change_log.md`。 |
 | **2026-04-21** | **P2 首轮：导出流式化与开关化（p2_pipeline_streaming_export）**：`export_training` 支持默认开启流式 bundle 写出，同时保留 `pipeline_streaming_enabled=false` 回退到旧缓冲路径；新增 `training_remainder_mode`（默认 `drop`，可选 `sidecar`）并补充对应测试与配置文档。收束见 `metadata/plans/2026-04-21_1533_p2_pipeline_streaming_export/change_log.md`。 |
 | **2026-04-21** | **单 worker 固定开销优化（single_worker_perf_no_profile）**：`spatial_relation_2d` 与 task dispatch 增加前置短路（空 objects/relations、sub_tasks 全 0 直接返回）；`ensure_qa` 内部从 `md_dump + md_validate` 切换到 model copy/update，减少每条记录中间序列化与校验成本。补充 UT 并通过。收束见 `metadata/plans/2026-04-21_1518_single_worker_perf_no_profile/change_log.md`。 |
 | **2026-04-21** | **resume 性能与 tqdm 稳定性修复（resume_perf_tqdm_stability）**：`iter_jsonl` 支持 `start_index` 并在 resume 跳过阶段避免无效 `json.loads`；并在 `progress=tqdm` 下抑制并行 worker 高频 done 日志，缓解控制台排版错乱。新增回归测试覆盖。收束见 `metadata/plans/2026-04-21_1503_resume_perf_tqdm_stability/change_log.md`。 |
@@ -70,6 +71,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-21_1718_viz_io_optimization/` | **已交付（实现 + 自测 + 收束）**：viz 读性能优化（training_lines 默认不计总数 + line_count 缓存）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1533_p2_pipeline_streaming_export/` | **已交付（首轮实现 + 自测 + 收束）**：导出流式化默认开启、可开关回退、remainder 策略参数化；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1518_single_worker_perf_no_profile/` | **已交付（实现 + 自测 + 收束）**：single worker 固定开销优化（早短路 + ensure_qa 去冗余序列化链路）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1503_resume_perf_tqdm_stability/` | **已交付（实现 + 自测 + 收束）**：resume 跳过阶段性能优化 + tqdm 并行显示稳定性修复；见该目录 `change_log.md` |

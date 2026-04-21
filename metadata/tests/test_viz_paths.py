@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from openspatial_metadata.viz.paths import (
+    count_lines_jsonl,
     enumerate_metadata_jsonl,
     find_sample_line,
     read_line_jsonl,
@@ -47,3 +48,13 @@ def test_safe_file_under_root(tmp_path: Path) -> None:
     f.write_bytes(b"x")
     assert safe_file_under_root(f, root) == f.resolve()
     assert safe_file_under_root(tmp_path / "other", root) is None
+
+
+def test_count_lines_jsonl_updates_after_file_change(tmp_path: Path) -> None:
+    p = tmp_path / "rows.jsonl"
+    p.write_text("{}\n{}\n", encoding="utf-8")
+    assert count_lines_jsonl(p) == 2
+    # second call should be cached and stable
+    assert count_lines_jsonl(p) == 2
+    p.write_text("{}\n{}\n{}\n", encoding="utf-8")
+    assert count_lines_jsonl(p) == 3

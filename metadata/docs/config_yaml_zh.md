@@ -105,6 +105,22 @@
 | `pipeline_streaming_enabled` | bool | `true` | 导出是否走流式 bundle 写出；`false` 时回退到旧导出路径。 |
 | `training_remainder_mode` | string | `drop` | `row_align` 尾部不足时处理策略：`drop` 或 `sidecar`。 |
 
+### 3D 空间关系链路（可选）
+
+若要走 3D metadata + 3D QA 路径，建议同时设置：
+
+- `enrich.relations_3d: true`（启用 3D 几何 enrich，写入 `relations[].source=computed_3d`）
+- `pipelines.ensure_qa: true`
+- `pipelines.qa_task_name: "spatial_relation_3d"`
+
+说明：
+
+- 现有 `relations` 中的 `ref_frame=egocentric` + `source=annotated_3d` 会被保留（不覆盖）。
+- 3D enrich 会把统计信息写入 `aux.enrich_3d.stats`，包含：
+  - 几何可用 pair 数；
+  - 产出关系总量与 `relation_sources`（`annotated_3d` / `computed_3d` 占比）；
+  - `n_conflicts_annotated_vs_geometry`（标注与几何推断不一致计数，样例见 `aux.enrich_3d.conflicts_annotated_vs_geometry`）。
+
 ### `adapter`（可选）
 
 - **类型**：映射，对应 `AdapterSpec`。  
@@ -119,6 +135,10 @@
 | `params` | mapping，可选 | 传入该适配器类构造函数的额外关键字（例如 `ExpressionRefreshQwenAdapter` 的 `base_url`、`model`、`timeout_s`）。若包含 `image_root` 且为相对路径，则相对于 **本数据集的 `dataset.yaml` 所在目录** 解析；省略时 CLI 会尽量使用 `viz.image_root`（与训练导出读图规则一致）。 |
 
 > **提示（LLM 刷新 adapter 的调试参数）**：`ExpressionRefreshQwenAdapter` 支持 `params.print_llm_output: true`，将模型输出（解析后的 JSON dict）直接打印到 stderr（**不落盘**）。若同时使用 `--progress tqdm`，打印行可能与进度条交错；需要更清晰的日志可用 `--progress log` 或 `none`。
+
+> **提示（3D 数据源适配）**：可通过 adapter 接入不同 3D 上游：
+> - `EmbodiedScan3DAdapter`：`file_name: embodiedscan_3d`，适配 EmbodiedScan 风格对象/关系字段；
+> - `Omni3DAdapter`：`file_name: omni3d`，适配 Omni3D 风格对象字段（常与 `enrich.relations_3d=true` 联用）。
 
 `module` 与 `class_name`（或 `class`）都具备时即可完成解析；仅 `file_name` + `class_name` 亦为常见写法。
 

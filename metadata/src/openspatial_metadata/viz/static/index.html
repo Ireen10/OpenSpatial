@@ -95,7 +95,7 @@
       line_count: 0,
       record: null,
       // training selection
-      training: { dataset: null, split: null, part: null, offset: 0, limit: 50, line_count: 0, records: [], idx: 0 },
+      training: { dataset: null, split: null, part: null, offset: 0, limit: 50, line_count: null, records: [], idx: 0 },
       hover_object_id: null,
       hover_relation_idx: null,
       selected_object_id: null,
@@ -387,15 +387,19 @@
       if (!tr.dataset || !tr.split || tr.part == null) return;
       state.mode = "training";
       state.record = null; // avoid stale metadata overlay on training images
-      const u = `/api/training_lines?dataset=${encodeURIComponent(tr.dataset)}&split=${encodeURIComponent(tr.split)}&part=${encodeURIComponent(String(tr.part))}&offset=${encodeURIComponent(String(tr.offset))}&limit=${encodeURIComponent(String(tr.limit))}`;
+      const u = `/api/training_lines?dataset=${encodeURIComponent(tr.dataset)}&split=${encodeURIComponent(tr.split)}&part=${encodeURIComponent(String(tr.part))}&offset=${encodeURIComponent(String(tr.offset))}&limit=${encodeURIComponent(String(tr.limit))}&with_count=false`;
       const r = await fetch(u);
       const j = await r.json();
       if (j.error) { $("hdr-meta").innerHTML = `<span class="err">${esc(j.error)}</span>`; return; }
       tr.records = j.records || [];
-      tr.line_count = j.line_count || 0;
+      tr.line_count = Number.isFinite(j.line_count) ? Number(j.line_count) : null;
       tr.idx = 0;
       $("line-input").value = String(tr.offset);
-      $("line-status").textContent = `offset ${tr.offset} · ${tr.records.length} recs · total ${tr.line_count}`;
+      const hasMore = !!j.has_more;
+      let status = `offset ${tr.offset} · ${tr.records.length} recs`;
+      status += hasMore ? " · more" : " · end";
+      if (tr.line_count != null) status += ` · total ${tr.line_count}`;
+      $("line-status").textContent = status;
       $("hdr-meta").textContent = `${tr.dataset} · ${tr.split} · data_${String(tr.part).padStart(6,"0")}`;
       renderTraining();
     }

@@ -23,7 +23,7 @@ from .config.loader import (
 from .config.qa_tasks import build_qa_items, load_qa_tasks_config, resolve_qa_task_params
 from .cli_phase_timing import PhaseTimer, format_timing_lines, timed_phase
 from .io.image_archive import resolve_image_archive_path
-from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
+from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats, print_and_reset_spatial_relation_3d_qa_stats
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
 from .utils.pydantic_compat import model_copy_update_compat, model_dump_compat, model_validate_compat
@@ -235,14 +235,19 @@ def _get_enrich_flags(ds: Any) -> Tuple[bool, bool]:
     return (bool(enrich.get("relations_2d", False)), bool(enrich.get("relations_3d", False)))
 
 
-def _apply_enrich_if_enabled(out: Dict, *, relations_2d: bool) -> Dict:
-    if not relations_2d:
+def _apply_enrich_if_enabled(out: Dict, *, relations_2d: bool, relations_3d: bool) -> Dict:
+    if not relations_2d and not relations_3d:
         return out
-    from .enrich.relation2d import enrich_relations_2d
-
     md = _md_validate(out)
-    md2 = enrich_relations_2d(md)
-    return _md_dump(md2)
+    if relations_2d:
+        from .enrich.relation2d import enrich_relations_2d
+
+        md = enrich_relations_2d(md)
+    if relations_3d:
+        from .enrich.relation3d import enrich_relations_3d
+
+        md = enrich_relations_3d(md)
+    return _md_dump(md)
 
 
 def _apply_dataset_meta(out: Dict, *, ds: Any, split_name: str, dataset_path: Optional[str] = None) -> Dict:
@@ -330,6 +335,7 @@ def _process_jsonl_file(
     tqdm_pos: Optional[int] = None,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -389,7 +395,7 @@ def _process_jsonl_file(
                 with timed_phase(phase_timer, "dataset_meta"):
                     out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
                 with timed_phase(phase_timer, "enrich_2d"):
-                    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d, relations_3d=relations_3d)
                 buffer.append(out)
                 if bar is not None:
                     bar.update(1)
@@ -423,7 +429,7 @@ def _process_jsonl_file(
             with timed_phase(phase_timer, "dataset_meta"):
                 out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
             with timed_phase(phase_timer, "enrich_2d"):
-                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d, relations_3d=relations_3d)
             return (input_index, out)
 
         submitted = 0
@@ -628,6 +634,7 @@ def _process_jsonl_file_training_pipeline(
     checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -732,7 +739,7 @@ def _process_jsonl_file_training_pipeline(
                         out.setdefault("aux", {})
                         out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
                         out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d, relations_3d=relations_3d)
                     else:
                         out = dict(record)
 
@@ -879,6 +886,7 @@ def _process_jsonl_files_parallel(
     checkpoint_root: Path,
     build_adapter_factory: Callable[[int], Callable[[], Optional[object]]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -908,6 +916,7 @@ def _process_jsonl_files_parallel(
                 tqdm_pos=slot,
                 adapter_factory=build_adapter_factory(part_id),
                 relations_2d=relations_2d,
+                relations_3d=relations_3d,
                 ds=ds,
                 split_name=split_name,
                 dataset_path=dataset_path,
@@ -944,6 +953,7 @@ def _process_jsonl_files_parallel(
                         tqdm_pos=slot,
                         adapter_factory=build_adapter_factory(part_id),
                         relations_2d=relations_2d,
+                        relations_3d=relations_3d,
                         ds=ds,
                         split_name=split_name,
                         dataset_path=dataset_path,
@@ -961,6 +971,7 @@ def _read_single_json_file_record(
     *,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -971,7 +982,7 @@ def _read_single_json_file_record(
     out.setdefault("aux", {})
     out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
     out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d, relations_3d=relations_3d)
     return out
 
 
@@ -1008,6 +1019,7 @@ def _process_json_files_sequential(
     checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -1025,6 +1037,7 @@ def _process_json_files_sequential(
             ip,
             adapter_factory=adapter_factory,
             relations_2d=relations_2d,
+            relations_3d=relations_3d,
             ds=ds,
             split_name=split_name,
             dataset_path=dataset_path,
@@ -1048,6 +1061,7 @@ def _process_json_files_parallel(
     checkpoint_root: Path,
     adapter_factory: Callable[[], Optional[object]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -1076,6 +1090,7 @@ def _process_json_files_parallel(
                     ip,
                     adapter_factory=adapter_factory,
                     relations_2d=relations_2d,
+                    relations_3d=relations_3d,
                     ds=ds,
                     split_name=split_name,
                     dataset_path=dataset_path,
@@ -1141,15 +1156,16 @@ def _effective_persist_noqa(*, pipe: Optional[Dict[str, Any]], enable_to_metadat
     return bool(enable_to_metadata)
 
 
-def _maybe_print_spatial_relation_2d_qa_stats(*, ds: Any, split_name: str, pipe: Optional[Dict[str, Any]]) -> None:
+def _maybe_print_qa_stats(*, ds: Any, split_name: str, pipe: Optional[Dict[str, Any]]) -> None:
     if not pipe:
         return
     if not bool(pipe.get("ensure_qa", False)):
         return
     qa_task_name = str(pipe.get("qa_task_name") or "spatial_relation_2d")
-    if qa_task_name != "spatial_relation_2d":
-        return
-    print_and_reset_spatial_relation_2d_qa_stats(dataset=str(getattr(ds, "name", "unknown")), split=str(split_name))
+    if qa_task_name == "spatial_relation_2d":
+        print_and_reset_spatial_relation_2d_qa_stats(dataset=str(getattr(ds, "name", "unknown")), split=str(split_name))
+    if qa_task_name == "spatial_relation_3d":
+        print_and_reset_spatial_relation_3d_qa_stats(dataset=str(getattr(ds, "name", "unknown")), split=str(split_name))
 
 
 def _process_jsonl_files_training_parallel(
@@ -1163,6 +1179,7 @@ def _process_jsonl_files_training_parallel(
     checkpoint_root: Path,
     build_adapter_factory: Callable[[int], Callable[[], Optional[object]]],
     relations_2d: bool,
+    relations_3d: bool,
     ds: Any,
     split_name: str,
     dataset_path: str,
@@ -1192,6 +1209,7 @@ def _process_jsonl_files_training_parallel(
                 checkpoint_root=checkpoint_root,
                 adapter_factory=build_adapter_factory(part_id),
                 relations_2d=relations_2d,
+                relations_3d=relations_3d,
                 ds=ds,
                 split_name=split_name,
                 dataset_path=dataset_path,
@@ -1236,6 +1254,7 @@ def _process_jsonl_files_training_parallel(
                         checkpoint_root=checkpoint_root,
                         adapter_factory=build_adapter_factory(part_id2),
                         relations_2d=relations_2d,
+                        relations_3d=relations_3d,
                         ds=ds,
                         split_name=split_name,
                         dataset_path=dataset_path,
@@ -1339,8 +1358,6 @@ def main(argv=None) -> None:
         output_root = Path(ds_output_root)
         output_root.mkdir(parents=True, exist_ok=True)
         (rel2d, rel3d) = _get_enrich_flags(ds)
-        if rel3d:
-            raise ValueError("relations_3d enrich not implemented")
         for split in ds.splits:
             if remaining_total is not None and remaining_total <= 0:
                 break
@@ -1373,7 +1390,7 @@ def main(argv=None) -> None:
             pipe = _pipeline_flags(ds)
             _log(
                 f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} rec_par={rec_par} "
-                f"batch_size={g.batch_size} enrich2d={rel2d} out={out_dir}"
+                f"batch_size={g.batch_size} enrich2d={rel2d} enrich3d={rel3d} out={out_dir}"
             )
             split_t0 = time.perf_counter()
             split_phase_timer = PhaseTimer() if use_timing else None
@@ -1405,6 +1422,7 @@ def main(argv=None) -> None:
                             checkpoint_root=checkpoint_root,
                             build_adapter_factory=build_adapter_factory,
                             relations_2d=rel2d,
+                            relations_3d=rel3d,
                             ds=ds,
                             split_name=split.name,
                             dataset_path=cfg_path,
@@ -1430,6 +1448,7 @@ def main(argv=None) -> None:
                                 checkpoint_root=checkpoint_root,
                                 adapter_factory=build_adapter_factory(part_id),
                                 relations_2d=rel2d,
+                                relations_3d=rel3d,
                                 ds=ds,
                                 split_name=split.name,
                                 dataset_path=cfg_path,
@@ -1479,6 +1498,7 @@ def main(argv=None) -> None:
                             checkpoint_root=checkpoint_root,
                             build_adapter_factory=build_adapter_factory,
                             relations_2d=rel2d,
+                            relations_3d=rel3d,
                             ds=ds,
                             split_name=split.name,
                             dataset_path=cfg_path,
@@ -1501,6 +1521,7 @@ def main(argv=None) -> None:
                                 checkpoint_root=checkpoint_root,
                                 adapter_factory=build_adapter_factory(part_id),
                                 relations_2d=rel2d,
+                                relations_3d=rel3d,
                                 ds=ds,
                                 split_name=split.name,
                                 dataset_path=cfg_path,
@@ -1512,7 +1533,7 @@ def main(argv=None) -> None:
                                 remaining -= int(n_done)
                                 if remaining_total is not None:
                                     remaining_total = remaining
-                _maybe_print_spatial_relation_2d_qa_stats(ds=ds, split_name=split.name, pipe=pipe)
+                _maybe_print_qa_stats(ds=ds, split_name=split.name, pipe=pipe)
             elif split.input_type == "json_files":
                 if remaining is not None:
                     files = files[:remaining]
@@ -1529,6 +1550,7 @@ def main(argv=None) -> None:
                         checkpoint_root=checkpoint_root,
                         adapter_factory=build_adapter_factory(0),
                         relations_2d=rel2d,
+                        relations_3d=rel3d,
                         ds=ds,
                         split_name=split.name,
                         dataset_path=cfg_path,
@@ -1543,6 +1565,7 @@ def main(argv=None) -> None:
                         checkpoint_root=checkpoint_root,
                         adapter_factory=build_adapter_factory(0),
                         relations_2d=rel2d,
+                        relations_3d=rel3d,
                         ds=ds,
                         split_name=split.name,
                         dataset_path=cfg_path,

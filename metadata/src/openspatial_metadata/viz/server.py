@@ -236,6 +236,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 part_s = (qs.get("part") or [None])[0]
                 offset_s = (qs.get("offset") or ["0"])[0]
                 limit_s = (qs.get("limit") or ["50"])[0]
+                with_count_s = (qs.get("with_count") or ["false"])[0]
                 if not dataset_name or not split_name or not part_s:
                     _send_json(self, {"error": "missing dataset/split/part"}, 400)
                     return
@@ -246,6 +247,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     _send_json(self, {"error": "bad part/offset/limit"}, 400)
                     return
+                with_count = str(with_count_s).strip().lower() in {"1", "true", "yes", "on"}
                 limit = max(1, min(limit, 200))
                 tr = resolved_training_root(dataset_index, dataset_name) or global_training_root
                 if tr is None:
@@ -258,19 +260,19 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 if not jsonl_path.is_file():
                     _send_json(self, {"error": "jsonl not found"}, 404)
                     return
-                recs, total = read_lines_jsonl(jsonl_path, offset=offset, limit=limit)
-                _send_json(
-                    self,
-                    {
-                        "dataset": dataset_name,
-                        "split": split_name,
-                        "part": part_id,
-                        "offset": offset,
-                        "limit": limit,
-                        "line_count": total,
-                        "records": recs,
-                    },
-                )
+                recs, total, has_more = read_lines_jsonl(jsonl_path, offset=offset, limit=limit, with_count=with_count)
+                payload = {
+                    "dataset": dataset_name,
+                    "split": split_name,
+                    "part": part_id,
+                    "offset": offset,
+                    "limit": limit,
+                    "records": recs,
+                    "has_more": has_more,
+                }
+                if with_count and isinstance(total, int):
+                    payload["line_count"] = total
+                _send_json(self, payload)
                 return
 
             if path == "/api/training_image":

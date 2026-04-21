@@ -13,6 +13,8 @@
 #             pipelines.to_metadata false, persist_noqa false, ensure_qa false
 #   [D]       Grounding chat + LLM phrase refresh: replace adapters block with
 #             the commented “Grounding + LLM refresh” chain at the bottom of this file.
+#   [E]       3D relation pipeline (EmbodiedScan/Omni3D style input):
+#             enrich.relations_3d true, qa_task_name spatial_relation_3d, adapters use embodiedscan_3d / omni3d.
 #
 # =============================================================================
 
@@ -97,6 +99,24 @@ pipelines:
 # pipelines:
 #   qa_task_overrides:
 #     dual_box_keep_prob: 0.2
+#
+# --- Profile E (3D relation metadata + 3D QA) --------------------------------
+# enrich:
+#   relations_2d: false
+#   relations_3d: true
+# adapters:
+#   - file_name: embodiedscan_3d
+#     class_name: EmbodiedScan3DAdapter
+#   # or:
+#   # - file_name: omni3d
+#   #   class_name: Omni3DAdapter
+# pipelines:
+#   to_metadata: true
+#   ensure_qa: true
+#   export_training: true
+#   qa_task_name: "spatial_relation_3d"
+#   pipeline_streaming_enabled: true
+#   training_remainder_mode: drop
 #
 # =============================================================================
 # --- Grounding + LLM refresh chain (was E2E-D): replace entire adapters: ------

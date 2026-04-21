@@ -104,3 +104,60 @@ def test_viz_server_tree_record_image(tmp_path: Path) -> None:
     assert seek["line"] == 0
 
     httpd.shutdown()
+
+
+def test_viz_training_lines_with_optional_count(tmp_path: Path) -> None:
+    ds_name = "demo_training_ds"
+    split_name = "train"
+    training_root = tmp_path / "training_out"
+    jsonl_dir = training_root / ds_name / split_name / "jsonl"
+    jsonl_dir.mkdir(parents=True)
+    rows = [
+        {"data": [{"role": "user", "content": [{"type": "text", "text": {"string": "q1"}}]}]},
+        {"data": [{"role": "assistant", "content": [{"type": "text", "text": {"string": "a1"}}]}]},
+        {"data": [{"role": "user", "content": [{"type": "text", "text": {"string": "q2"}}]}]},
+    ]
+    (jsonl_dir / "data_000000.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    cfg_dir = tmp_path / "configs" / "datasets" / ds_name
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                f"name: {ds_name}",
+                f"training_output_root: {training_root.as_posix()}",
+                "splits:",
+                f"  - name: {split_name}",
+                "    input_type: jsonl",
+                "    inputs: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    idx = build_dataset_index(tmp_path / "configs" / "datasets")
+    httpd = create_server("127.0.0.1", 0, output_root=tmp_path / "metadata_out", dataset_index=idx, default_scale=1000)
+    real_port = httpd.server_address[1]
+    t = threading.Thread(target=serve_forever, args=(httpd,), daemon=True)
+    t.start()
+    base = f"http://127.0.0.1:{real_port}"
+
+    def get_json(url: str):
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    r0 = get_json(
+        f"{base}/api/training_lines?dataset={quote(ds_name)}&split={quote(split_name)}&part=0&offset=0&limit=2"
+    )
+    assert len(r0["records"]) == 2
+    assert r0["has_more"] is True
+    assert "line_count" not in r0
+
+    r1 = get_json(
+        f"{base}/api/training_lines?dataset={quote(ds_name)}&split={quote(split_name)}&part=0&offset=0&limit=2&with_count=true"
+    )
+    assert len(r1["records"]) == 2
+    assert r1["has_more"] is True
+    assert r1["line_count"] == 3
+
+    httpd.shutdown()

@@ -32,3 +32,39 @@ class TestQaTasksRegistry(unittest.TestCase):
         items = build_qa_items(md, qa_task_name="spatial_relation_2d", params=params)
         self.assertEqual(items, [])
 
+    def test_build_spatial_relation_3d(self):
+        from openspatial_metadata.schema.metadata_v0 import DatasetV0, ImageV0, MetadataV0, ObjectV0, RelationV0, SampleV0
+
+        reg = load_qa_tasks_config("metadata/templates/configs_minimal/qa_tasks.yaml")
+        params = resolve_qa_task_params(
+            reg,
+            qa_task_name="spatial_relation_3d",
+            overrides={"sub_tasks": {"atomic": 1, "composite": 1, "judgment": 1}},
+        )
+        md = MetadataV0(
+            dataset=DatasetV0(name="t", version="v0", split="train"),
+            sample=SampleV0(sample_id="s/0", view_id=0, image=ImageV0(path="x.png", coord_scale=1000)),
+            camera=None,
+            objects=[
+                ObjectV0(object_id="a#0", category="chair", phrase="chair", center_xyz_cam=[0.0, 0.0, 2.0]),
+                ObjectV0(object_id="b#0", category="table", phrase="table", center_xyz_cam=[1.0, -1.0, 1.0]),
+            ],
+            queries=[],
+            relations=[
+                RelationV0(
+                    relation_id="relation#0",
+                    anchor_id="a#0",
+                    target_id="b#0",
+                    predicate="front",
+                    ref_frame="egocentric",
+                    components=["front", "right", "above"],
+                    axis_signs={"front": 1, "right": 1, "above": 1},
+                    source="computed_3d",
+                )
+            ],
+            qa_items=[],
+            aux={},
+        )
+        items = build_qa_items(md, qa_task_name="spatial_relation_3d", params=params)
+        self.assertTrue(items)
+

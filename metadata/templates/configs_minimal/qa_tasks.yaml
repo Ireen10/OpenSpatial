@@ -49,7 +49,13 @@ tasks:
         judgment: 2
 
   spatial_relation_3d:
-    type: scene_3d_relation
-    enabled: false
-    params: {}
+    type: spatial_relation_3d
+    enabled: true
+    params:
+      random_seed: 11
+      judgment_true_prob: 0.5
+      sub_tasks:
+        atomic: 2
+        composite: 2
+        judgment: 2
 
