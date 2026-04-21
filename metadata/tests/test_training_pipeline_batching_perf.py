@@ -15,6 +15,14 @@ class _Ds:
         self.meta: Dict[str, Any] = {}
 
 
+class _GlobalCfg:
+    def __init__(self) -> None:
+        self.training_rows_per_part = 1024
+        self.training_row_align = 16
+        self.pipeline_streaming_enabled = True
+        self.training_remainder_mode = "drop"
+
+
 def _minimal_metadata_record(sample_id: str) -> Dict[str, Any]:
     return {
         "dataset": {"name": "demo", "version": "v0", "split": "train"},
@@ -182,3 +190,20 @@ def test_training_pipeline_ensure_qa_avoids_extra_intermediate_dump(tmp_path: Pa
     assert n_done == 2
     # Only final qa payload dumps are needed (one per record) after removing intermediate md dump/validate chain.
     assert dump_calls["n"] == 2
+
+
+def test_training_pack_settings_default_and_pipe_override() -> None:
+    g = _GlobalCfg()
+    rows, align, stream, mode = cli_mod._training_pack_settings(g, pipe=None)
+    assert (rows, align, stream, mode) == (1024, 16, True, "drop")
+
+    rows2, align2, stream2, mode2 = cli_mod._training_pack_settings(
+        g,
+        pipe={
+            "training_rows_per_part": 64,
+            "training_row_align": 8,
+            "pipeline_streaming_enabled": False,
+            "training_remainder_mode": "drop",
+        },
+    )
+    assert (rows2, align2, stream2, mode2) == (64, 8, False, "drop")

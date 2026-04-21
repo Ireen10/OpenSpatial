@@ -540,15 +540,21 @@ def _resolved_image_root_for_adapter(ds: Any, dataset_config_path: str) -> str:
     return str(p.resolve())
 
 
-def _training_pack_settings(g: Any, pipe: Optional[Dict[str, Any]]) -> Tuple[int, int]:
+def _training_pack_settings(g: Any, pipe: Optional[Dict[str, Any]]) -> Tuple[int, int, bool, str]:
     rows = int(getattr(g, "training_rows_per_part", 1024) or 1024)
     align = int(getattr(g, "training_row_align", 16) or 16)
+    streaming = bool(getattr(g, "pipeline_streaming_enabled", True))
+    remainder_mode = str(getattr(g, "training_remainder_mode", "drop") or "drop")
     if isinstance(pipe, dict):
         if pipe.get("training_rows_per_part") is not None:
             rows = int(pipe["training_rows_per_part"])
         if pipe.get("training_row_align") is not None:
             align = int(pipe["training_row_align"])
-    return rows, align
+        if pipe.get("pipeline_streaming_enabled") is not None:
+            streaming = bool(pipe["pipeline_streaming_enabled"])
+        if pipe.get("training_remainder_mode") is not None:
+            remainder_mode = str(pipe["training_remainder_mode"] or "drop")
+    return rows, align, streaming, remainder_mode
 
 
 def _finalize_training_export_for_split(
@@ -561,6 +567,8 @@ def _finalize_training_export_for_split(
     dataset_path: str,
     rows_per_part: int,
     row_align: int,
+    pipeline_streaming_enabled: bool,
+    training_remainder_mode: str,
     image_archive_pattern: Optional[str] = None,
     image_archive_base_dir: Optional[str] = None,
 ) -> None:
@@ -596,6 +604,8 @@ def _finalize_training_export_for_split(
             image_root=_resolve_image_root(ds, dataset_path),
             rows_per_part=rows_per_part,
             row_align=row_align,
+            pipeline_streaming_enabled=pipeline_streaming_enabled,
+            training_remainder_mode=training_remainder_mode,
             on_shard_progress=on_shard_progress,
             image_archive_pattern=image_archive_pattern,
             image_archive_base_dir=image_archive_base_dir,
@@ -1098,7 +1108,8 @@ def _pipeline_flags(ds: Any) -> Optional[Dict[str, Any]]:
     Dataset-level pipeline config. Kept flexible (extra=allow), so we accept:
     - None / missing -> no pipeline, default metadata-only behavior
     - dict with keys {to_metadata, ensure_qa, export_training, qa_task_name, qa_task_overrides,
-      training_rows_per_part, training_row_align} (latter two override global defaults for export only)
+      training_rows_per_part, training_row_align, pipeline_streaming_enabled, training_remainder_mode}
+      (export-related keys override global defaults)
     """
     p = getattr(ds, "pipelines", None)
     if p is None:
@@ -1377,11 +1388,12 @@ def main(argv=None) -> None:
                     enable_export = bool(pipe.get("export_training", True))
                     persist_noqa = _effective_persist_noqa(pipe=pipe, enable_to_metadata=enable_to_metadata)
                     training_root = _training_output_root(args.output_root, ds, g)
-                    rows_pt, row_al = _training_pack_settings(g, pipe)
+                    rows_pt, row_al, stream_en, remainder_mode = _training_pack_settings(g, pipe)
                     _log(
                         f"pipeline {ds.name}/{split.name}: to_metadata={enable_to_metadata} "
                         f"ensure_qa={enable_ensure_qa} export_training={enable_export} qa_task={qa_task_name} "
-                        f"train_out={training_root} training_rows_per_part={rows_pt} training_row_align={row_al}"
+                        f"train_out={training_root} training_rows_per_part={rows_pt} training_row_align={row_al} "
+                        f"pipeline_streaming_enabled={stream_en} training_remainder_mode={remainder_mode}"
                     )
                     if eff > 1:
                         n_split_recs = _process_jsonl_files_training_parallel(
@@ -1449,6 +1461,8 @@ def main(argv=None) -> None:
                             dataset_path=cfg_path,
                             rows_per_part=rows_pt,
                             row_align=row_al,
+                            pipeline_streaming_enabled=stream_en,
+                            training_remainder_mode=remainder_mode,
                             image_archive_pattern=getattr(split, "image_archive_pattern", None),
                             image_archive_base_dir=str(Path(cfg_path).resolve().parent),
                         )

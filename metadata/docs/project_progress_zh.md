@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-已完成新一轮 **single_worker_perf_no_profile** 固定开销优化：在 `ensure_qa` 与 `spatial_relation_2d` 路径引入早短路并移除中间 `dump->validate` 冗余链路，继续保持 pipeline 语义与模块边界不变。下一步建议推进跨阶段流水并行（`noqa->qa->export`）与 records/file 两层并发参数自适应。
+已完成 **P2 首轮落地（p2_pipeline_streaming_export）**：训练导出默认切换为可回退的流式 bundle 写出，并新增 `pipeline_streaming_enabled` / `training_remainder_mode` 参数；当前默认策略为“流式开启 + remainder drop 兼容”。下一步继续推进真正的三阶段流水并行与共享中间表示。
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-21** | **P2 首轮：导出流式化与开关化（p2_pipeline_streaming_export）**：`export_training` 支持默认开启流式 bundle 写出，同时保留 `pipeline_streaming_enabled=false` 回退到旧缓冲路径；新增 `training_remainder_mode`（默认 `drop`，可选 `sidecar`）并补充对应测试与配置文档。收束见 `metadata/plans/2026-04-21_1533_p2_pipeline_streaming_export/change_log.md`。 |
 | **2026-04-21** | **单 worker 固定开销优化（single_worker_perf_no_profile）**：`spatial_relation_2d` 与 task dispatch 增加前置短路（空 objects/relations、sub_tasks 全 0 直接返回）；`ensure_qa` 内部从 `md_dump + md_validate` 切换到 model copy/update，减少每条记录中间序列化与校验成本。补充 UT 并通过。收束见 `metadata/plans/2026-04-21_1518_single_worker_perf_no_profile/change_log.md`。 |
 | **2026-04-21** | **resume 性能与 tqdm 稳定性修复（resume_perf_tqdm_stability）**：`iter_jsonl` 支持 `start_index` 并在 resume 跳过阶段避免无效 `json.loads`；并在 `progress=tqdm` 下抑制并行 worker 高频 done 日志，缓解控制台排版错乱。新增回归测试覆盖。收束见 `metadata/plans/2026-04-21_1503_resume_perf_tqdm_stability/change_log.md`。 |
 | **2026-04-21** | **非侵入性能埋点（perf_timing_nonintrusive）**：为 pipeline 增加 `checkpoint_write/metadata_dump/persist_noqa_write/persist_qa_write` phase 聚合，埋点仅进入 `--timing` 汇总，不新增运行中日志，不影响进度条显示。收束见 `metadata/plans/2026-04-21_1454_perf_timing_nonintrusive/change_log.md`。 |
@@ -54,8 +55,9 @@
 - [ ] **viz（完善 QA 交互 + 更强大数据体验）**：
   - metadata 模式新增明确的 `qa_items` 面板（过滤/搜索/跳转）与必要的轻量分页（若单文件特别大）
   - training 模式支持更稳定的“随机跳转/定位”能力（例如行号索引或 sidecar index），并限制 `line_count` 的计算成本
-- [ ] **pipeline 吞吐下一阶段**：评估并实施 `noqa -> qa -> export` 的跨阶段流水并行，减少串行阶段等待与磁盘往返。  
+- [ ] **pipeline 吞吐下一阶段**：在已完成“导出流式化”基础上，继续实施 `noqa -> qa -> export` 的跨阶段流水并行（有界队列 + 保序 + 回压）。  
 - [ ] **并发参数自适应**：补充 `num_workers` 与 `records_parallelism` 的推荐/自动调优策略（按输入规模、CPU 核数、I/O 负载）。  
+- [ ] **共享中间表示 + 轻量缓存**：推进 `RecordEnvelope` 与可签名 disk cache，减少跨阶段重复反序列化。  
 - [ ] **metadata_spec_v0**：在 `metadata/docs/metadata_spec_v0_zh.md` 补一节 `RelationV0.relation_id`（格式、自动生成、与 QA `meta` 追溯对齐）；与首轮 annotation 交付对齐。  
 - [ ] **CI**：在 Linux 上跑 `pytest metadata/tests`（若仓库尚无 workflow，可在 OpenSpatial 根或子项目加一条）。  
 - [ ] **规模化接入真实数据**：为每个真实数据集补齐 `datasets/<name>/dataset.yaml`（含 inputs/glob、output_root、meta、enrich 开关），并补“样例+解析约束”的 plans。  
@@ -68,6 +70,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-21_1533_p2_pipeline_streaming_export/` | **已交付（首轮实现 + 自测 + 收束）**：导出流式化默认开启、可开关回退、remainder 策略参数化；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1518_single_worker_perf_no_profile/` | **已交付（实现 + 自测 + 收束）**：single worker 固定开销优化（早短路 + ensure_qa 去冗余序列化链路）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1503_resume_perf_tqdm_stability/` | **已交付（实现 + 自测 + 收束）**：resume 跳过阶段性能优化 + tqdm 并行显示稳定性修复；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1454_perf_timing_nonintrusive/` | **已交付（实现 + 自测 + 收束）**：新增非侵入性能埋点（仅 `--timing` 汇总，不影响进度条）；见该目录 `change_log.md` |

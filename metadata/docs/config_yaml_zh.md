@@ -42,8 +42,10 @@
 | `llm` | mapping, 可选 | `null` | 全局 LLM 默认连接参数（OpenAI 兼容 `POST /v1/chat/completions`），用于需要 LLM 的 adapter（例如 `ExpressionRefreshQwenAdapter`）。**仅当适配器构造函数存在同名参数时**才会注入；dataset 侧 `AdapterSpec.params` 会覆盖同名键。常用键：`base_url`（含 `/v1`）、`model`、`api_key`、`timeout_s`、`temperature`、`max_tokens`、`llm_parallelism`、`llm_max_concurrency`。 |
 | `training_rows_per_part` | int | `1024` | **仅训练导出**：从 `metadata_qa/data_*.jsonl` 汇总训练行后，每个 bundle（`images/data_*.tar` 等）内 **JSONL 行数** 目标上限；必须能被 `training_row_align` 整除。 |
 | `training_row_align` | int | `16` | **仅训练导出**：每个 bundle 内最终写入行数会向下对齐为该值的倍数；末段不足时在行尾丢弃余数（stderr 有提示）。测试或小样本可设为 `1`。 |
+| `pipeline_streaming_enabled` | bool | `true` | **仅训练导出**：是否启用流式 bundle 写出路径（默认开）。关闭后回退到旧的缓冲聚合导出路径，便于灰度/回滚。 |
+| `training_remainder_mode` | string | `drop` | **仅训练导出**：`row_align` 尾部不足对齐时的处理策略。`drop` 表示与历史一致直接丢弃并提示；`sidecar` 表示写入 sidecar 文件保留余数。 |
 
-允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。`pipelines` 中可设同名键以覆盖上述两字段（仅当 `export_training` 为真时生效）。
+允许**额外键**（模型 `extra = "allow"`），便于将来扩展；未知键当前会被静默保留在内存中，但**未必**被使用。`pipelines` 中可设同名键以覆盖上述导出相关字段（仅当 `export_training` 为真时生效）。
 
 ---
 
@@ -84,7 +86,7 @@
 ### `pipelines`（可选，推荐用于端到端）
 
 - **类型**：映射（当前实现接受 dict；模型允许 extra 字段）
-- **说明**：当配置 `pipelines.ensure_qa=true` 或 `pipelines.export_training=true` 时，CLI 对 `jsonl` 输入会走“单条记录不中断”的串联执行路径（同一 worker 内）：
+- **说明**：当配置 `pipelines.ensure_qa=true` 或 `pipelines.export_training=true` 时，CLI 对 `jsonl` 输入会走训练 pipeline 路径；导出阶段默认启用流式写出（可用开关回退）。
   - `to_metadata`：可选。为 `true` 时对每条输入跑 adapter/meta/enrich 生成 `MetadataV0`；为 `false` 时表示输入已是 metadata（跳过 adapter/meta/enrich）。**是否落盘** `metadata_noqa/` 由下面的 `persist_noqa` 决定，而不是仅由本开关决定。
   - `persist_noqa`：可选。控制是否写出 `{split}/metadata_noqa/data_*.jsonl`（节省磁盘时可关）。**未设置**时：若 `to_metadata=true` 则默认写出 `metadata_noqa/`；若 `to_metadata=false` 则默认**不**写出（避免从 metadata 起步再复制一份）。若**显式**设为 `true`/`false`，则无论起点如何都按该值执行。
   - `ensure_qa`：可选。对每条 metadata 生成 `qa_items` 并写出 `metadata_qa/`（仅当 `qa_items` 非空时写一行；若 `qa_items` 为空则不写 `metadata_qa/`、也不做训练导出；若此时仍写出了 `metadata_noqa/`（见 `persist_noqa`），则 `metadata_noqa` 中仍会保留该条记录）。
@@ -100,6 +102,8 @@
 | `export_training` | bool | `false` | 输出训练 bundle（需要 `ensure_qa` 先产出 QA，或输入本身已带 `qa_items`）。 |
 | `qa_task_name` | string | `spatial_relation_2d` | 使用的 QA 任务名（在 `qa_tasks.yaml` 中注册）。 |
 | `qa_task_overrides` | mapping | `null` | 覆盖全局 QA 任务 params 的少量字段。 |
+| `pipeline_streaming_enabled` | bool | `true` | 导出是否走流式 bundle 写出；`false` 时回退到旧导出路径。 |
+| `training_remainder_mode` | string | `drop` | `row_align` 尾部不足时处理策略：`drop` 或 `sidecar`。 |
 
 ### `adapter`（可选）
 

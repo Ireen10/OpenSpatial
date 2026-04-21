@@ -8,15 +8,16 @@ with the final remainder trimmed to a multiple of ``training_row_align`` (when a
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 from openspatial_metadata.export.paths import disambiguate_relpath
 from openspatial_metadata.export.run import build_training_members_and_rows
-from openspatial_metadata.export.stream import TrainingBundleWriter, bundle_paths
+from openspatial_metadata.export.stream import TrainingBundlePaths, TrainingBundleWriter, bundle_paths
 from openspatial_metadata.io.image_archive import resolve_image_archive_path
 from openspatial_metadata.schema.metadata_v0 import MetadataV0
 from openspatial_metadata.utils.pydantic_compat import model_validate_compat
@@ -68,57 +69,45 @@ def _write_one_bundle(
         bw.finalize_tarinfo()
 
 
-def export_training_bundles_from_metadata_qa(
+def _delete_bundle_files(paths: TrainingBundlePaths) -> None:
+    for p in (paths.tar_path, paths.tarinfo_path, paths.jsonl_path):
+        try:
+            if p.exists():
+                p.unlink()
+        except OSError:
+            pass
+
+
+def _write_remainder_sidecar(
     *,
-    metadata_qa_dir: Path,
     bundle_root: Path,
-    rows_per_part: int,
-    row_align: int,
-    image_root: Optional[Union[str, Path]] = None,
-    image_archive_pattern: Optional[str] = None,
-    image_archive_base_dir: Optional[Union[str, Path]] = None,
+    remainder_items: List[Tuple[str, bytes, Dict[str, Any], int]],
+) -> None:
+    if not remainder_items:
+        return
+    sidecar_path = bundle_root / "jsonl" / "remainder_rows.jsonl"
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+    with sidecar_path.open("a", encoding="utf-8") as f:
+        for rel, data, row, input_index in remainder_items:
+            payload = {
+                "relative_path": rel,
+                "input_index": int(input_index),
+                "row": row,
+                "image_b64": base64.b64encode(data).decode("ascii"),
+            }
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _iter_training_items_from_metadata_qa(
+    *,
+    shards: List[Path],
+    image_root: Optional[Path],
+    image_archive_pattern: Optional[str],
+    archive_base: Optional[Path],
     on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
-) -> int:
-    """
-    Read all ``data_*.jsonl`` in ``metadata_qa_dir`` (numeric order), emit training bundles under
-    ``bundle_root`` (``images/``, ``jsonl/``) as ``data_{id:06d}.*``.
-
-    Returns the number of bundles written.
-    """
-    if rows_per_part <= 0:
-        raise ValueError("rows_per_part must be positive")
-    if row_align <= 0:
-        raise ValueError("row_align must be positive")
-    if rows_per_part % row_align != 0:
-        raise ValueError(f"rows_per_part ({rows_per_part}) must be a multiple of row_align ({row_align})")
-
-    use_tar = isinstance(image_archive_pattern, str) and image_archive_pattern.strip()
-    if use_tar:
-        if not image_archive_base_dir:
-            raise ValueError("image_archive_base_dir is required when image_archive_pattern is set")
-        archive_base = Path(image_archive_base_dir).resolve()
-    else:
-        if image_root is None:
-            raise ValueError("image_root is required when image_archive_pattern is not set")
-        image_root_p = Path(image_root)
-
-    shards = _sorted_metadata_qa_shards(metadata_qa_dir)
-    if not shards:
-        return 0
-
+) -> Iterable[Tuple[str, bytes, Dict[str, Any], int]]:
     n_shards = len(shards)
-    buffer: List[Tuple[str, bytes, Dict[str, Any], int]] = []
-    bundle_id = 0
-
-    def emit_chunk(n: int) -> None:
-        nonlocal bundle_id, buffer
-        if n <= 0 or len(buffer) < n:
-            return
-        chunk = buffer[:n]
-        buffer = buffer[n:]
-        _write_one_bundle(bundle_root, bundle_id, chunk)
-        bundle_id += 1
-
+    use_tar = isinstance(image_archive_pattern, str) and bool(image_archive_pattern.strip())
     for si, shard_path in enumerate(shards):
         if on_shard_progress is not None:
             on_shard_progress(si, n_shards, shard_path)
@@ -126,6 +115,7 @@ def export_training_bundles_from_metadata_qa(
         shard_id = int(m_shard.group(1)) if m_shard else si
         tar_path: Optional[Path] = None
         if use_tar:
+            assert archive_base is not None
             tar_path = resolve_image_archive_path(image_archive_pattern.strip(), shard_id, archive_base)
             if not tar_path.is_file():
                 raise FileNotFoundError(f"image archive for shard {shard_id:06d} not found: {tar_path}")
@@ -143,18 +133,54 @@ def export_training_bundles_from_metadata_qa(
                 if use_tar:
                     members, rows = build_training_members_and_rows(md, image_tar_path=tar_path)
                 else:
-                    members, rows = build_training_members_and_rows(md, image_root=image_root_p)
+                    assert image_root is not None
+                    members, rows = build_training_members_and_rows(md, image_root=image_root)
                 for (rel, data), row in zip(members, rows):
-                    buffer.append((rel, data, row, input_index))
-                while len(buffer) >= rows_per_part:
-                    emit_chunk(rows_per_part)
+                    yield (rel, data, row, input_index)
 
-    # Final remainder: trim to a multiple of row_align
+
+def _export_buffered_legacy(
+    *,
+    shards: List[Path],
+    bundle_root: Path,
+    rows_per_part: int,
+    row_align: int,
+    image_root: Optional[Path],
+    image_archive_pattern: Optional[str],
+    archive_base: Optional[Path],
+    training_remainder_mode: str,
+    on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
+) -> int:
+    buffer: List[Tuple[str, bytes, Dict[str, Any], int]] = []
+    bundle_id = 0
+
+    def emit_chunk(n: int) -> None:
+        nonlocal bundle_id, buffer
+        if n <= 0 or len(buffer) < n:
+            return
+        chunk = buffer[:n]
+        buffer = buffer[n:]
+        _write_one_bundle(bundle_root, bundle_id, chunk)
+        bundle_id += 1
+
+    for item in _iter_training_items_from_metadata_qa(
+        shards=shards,
+        image_root=image_root,
+        image_archive_pattern=image_archive_pattern,
+        archive_base=archive_base,
+        on_shard_progress=on_shard_progress,
+    ):
+        buffer.append(item)
+        while len(buffer) >= rows_per_part:
+            emit_chunk(rows_per_part)
+
     R = len(buffer)
     if R == 0:
         return bundle_id
     usable = (R // row_align) * row_align if row_align > 1 else R
     if usable == 0:
+        if training_remainder_mode == "sidecar":
+            _write_remainder_sidecar(bundle_root=bundle_root, remainder_items=buffer)
         print(
             f"[openspatial-metadata] training export: dropped {R} trailing row(s) "
             f"(not a multiple of row_align={row_align}); increase data or lower row_align.",
@@ -163,6 +189,8 @@ def export_training_bundles_from_metadata_qa(
         buffer.clear()
         return bundle_id
     if usable < R:
+        if training_remainder_mode == "sidecar":
+            _write_remainder_sidecar(bundle_root=bundle_root, remainder_items=buffer[usable:])
         print(
             f"[openspatial-metadata] training export: dropped {R - usable} trailing row(s) "
             f"to satisfy row_align={row_align}.",
@@ -171,6 +199,170 @@ def export_training_bundles_from_metadata_qa(
         buffer = buffer[:usable]
     emit_chunk(len(buffer))
     return bundle_id
+
+
+def _export_streaming_writer(
+    *,
+    shards: List[Path],
+    bundle_root: Path,
+    rows_per_part: int,
+    row_align: int,
+    image_root: Optional[Path],
+    image_archive_pattern: Optional[str],
+    archive_base: Optional[Path],
+    training_remainder_mode: str,
+    on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
+) -> int:
+    bundle_id = 0
+    current_paths: Optional[TrainingBundlePaths] = None
+    current_writer: Optional[TrainingBundleWriter] = None
+    current_items: List[Tuple[str, bytes, Dict[str, Any], int]] = []
+
+    def _open_writer_if_needed() -> None:
+        nonlocal current_paths, current_writer
+        if current_writer is not None:
+            return
+        current_paths = bundle_paths(bundle_root, bundle_id)
+        current_writer = TrainingBundleWriter(current_paths, resume=False)
+        current_writer.__enter__()
+
+    def _finalize_current_bundle() -> None:
+        nonlocal bundle_id, current_paths, current_writer, current_items
+        if current_writer is None:
+            return
+        try:
+            current_writer.finalize_tarinfo()
+        finally:
+            current_writer.__exit__(None, None, None)
+            current_writer = None
+            current_paths = None
+            current_items.clear()
+        bundle_id += 1
+
+    for rel, data, row, input_index in _iter_training_items_from_metadata_qa(
+        shards=shards,
+        image_root=image_root,
+        image_archive_pattern=image_archive_pattern,
+        archive_base=archive_base,
+        on_shard_progress=on_shard_progress,
+    ):
+        _open_writer_if_needed()
+        assert current_writer is not None
+        rel2 = disambiguate_relpath(rel, input_index=input_index, existing=current_writer.existing_names)
+        row["data"][0]["content"][0]["image"]["relative_path"] = rel2
+        current_writer.add_image(rel2, data)
+        current_writer.add_jsonl_row(row)
+        current_items.append((rel2, data, row, input_index))
+        if len(current_items) >= rows_per_part:
+            _finalize_current_bundle()
+
+    if not current_items:
+        if current_writer is not None:
+            current_writer.__exit__(None, None, None)
+        return bundle_id
+
+    R = len(current_items)
+    usable = (R // row_align) * row_align if row_align > 1 else R
+    dropped_items = current_items[usable:] if usable < R else []
+    if dropped_items and training_remainder_mode == "sidecar":
+        _write_remainder_sidecar(bundle_root=bundle_root, remainder_items=list(dropped_items))
+    if usable == 0:
+        print(
+            f"[openspatial-metadata] training export: dropped {R} trailing row(s) "
+            f"(not a multiple of row_align={row_align}); increase data or lower row_align.",
+            file=sys.stderr,
+        )
+        if current_writer is not None:
+            current_writer.__exit__(None, None, None)
+        if current_paths is not None:
+            _delete_bundle_files(current_paths)
+        return bundle_id
+
+    if usable < R:
+        print(
+            f"[openspatial-metadata] training export: dropped {R - usable} trailing row(s) "
+            f"to satisfy row_align={row_align}.",
+            file=sys.stderr,
+        )
+        # Rewrite the partial bundle to keep only aligned rows.
+        if current_writer is not None:
+            current_writer.__exit__(None, None, None)
+        if current_paths is not None:
+            _delete_bundle_files(current_paths)
+        _write_one_bundle(bundle_root, bundle_id, current_items[:usable])
+        return bundle_id + 1
+
+    _finalize_current_bundle()
+    return bundle_id
+
+
+def export_training_bundles_from_metadata_qa(
+    *,
+    metadata_qa_dir: Path,
+    bundle_root: Path,
+    rows_per_part: int,
+    row_align: int,
+    image_root: Optional[Union[str, Path]] = None,
+    image_archive_pattern: Optional[str] = None,
+    image_archive_base_dir: Optional[Union[str, Path]] = None,
+    pipeline_streaming_enabled: bool = True,
+    training_remainder_mode: str = "drop",
+    on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
+) -> int:
+    """
+    Read all ``data_*.jsonl`` in ``metadata_qa_dir`` (numeric order), emit training bundles under
+    ``bundle_root`` (``images/``, ``jsonl/``) as ``data_{id:06d}.*``.
+
+    Returns the number of bundles written.
+    """
+    if rows_per_part <= 0:
+        raise ValueError("rows_per_part must be positive")
+    if row_align <= 0:
+        raise ValueError("row_align must be positive")
+    if rows_per_part % row_align != 0:
+        raise ValueError(f"rows_per_part ({rows_per_part}) must be a multiple of row_align ({row_align})")
+
+    use_tar = isinstance(image_archive_pattern, str) and image_archive_pattern.strip()
+    mode = str(training_remainder_mode or "drop").strip().lower()
+    if mode not in ("drop", "sidecar"):
+        raise ValueError(f"training_remainder_mode must be 'drop' or 'sidecar', got: {training_remainder_mode!r}")
+    image_root_p: Optional[Path] = None
+    archive_base: Optional[Path] = None
+    if use_tar:
+        if not image_archive_base_dir:
+            raise ValueError("image_archive_base_dir is required when image_archive_pattern is set")
+        archive_base = Path(image_archive_base_dir).resolve()
+    else:
+        if image_root is None:
+            raise ValueError("image_root is required when image_archive_pattern is not set")
+        image_root_p = Path(image_root)
+
+    shards = _sorted_metadata_qa_shards(metadata_qa_dir)
+    if not shards:
+        return 0
+    if pipeline_streaming_enabled:
+        return _export_streaming_writer(
+            shards=shards,
+            bundle_root=bundle_root,
+            rows_per_part=rows_per_part,
+            row_align=row_align,
+            image_root=image_root_p,
+            image_archive_pattern=image_archive_pattern,
+            archive_base=archive_base,
+            training_remainder_mode=mode,
+            on_shard_progress=on_shard_progress,
+        )
+    return _export_buffered_legacy(
+        shards=shards,
+        bundle_root=bundle_root,
+        rows_per_part=rows_per_part,
+        row_align=row_align,
+        image_root=image_root_p,
+        image_archive_pattern=image_archive_pattern,
+        archive_base=archive_base,
+        training_remainder_mode=mode,
+        on_shard_progress=on_shard_progress,
+    )
 
 
 def export_training_bundles_for_split(
@@ -184,6 +376,8 @@ def export_training_bundles_for_split(
     image_archive_base_dir: Optional[Union[str, Path]] = None,
     rows_per_part: int,
     row_align: int,
+    pipeline_streaming_enabled: bool = True,
+    training_remainder_mode: str = "drop",
     on_shard_progress: Optional[Callable[[int, int, Path], None]] = None,
 ) -> int:
     """
@@ -203,6 +397,8 @@ def export_training_bundles_for_split(
         bundle_root=bundle_root,
         rows_per_part=rows_per_part,
         row_align=row_align,
+        pipeline_streaming_enabled=pipeline_streaming_enabled,
+        training_remainder_mode=training_remainder_mode,
         image_root=image_root,
         image_archive_pattern=image_archive_pattern,
         image_archive_base_dir=image_archive_base_dir,

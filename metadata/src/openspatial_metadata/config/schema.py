@@ -95,4 +95,7 @@ class GlobalConfig(BaseModel):
     # Training bundle packing (CLI export_training phase only; metadata unaffected).
     training_rows_per_part: int = 1024
     training_row_align: int = 16
+    # Pipeline/export behavior toggles (dataset pipelines may override).
+    pipeline_streaming_enabled: bool = True
+    training_remainder_mode: str = "drop"
 
