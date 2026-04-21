@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0, MetadataV0
 from openspatial_metadata.prompt_templates import spatial_relation_2d_prompt_templates as tpl
+from openspatial_metadata.qa.runtime_stats import record_spatial_relation_2d_qa_stats
 
 
 FULL_SENTENCE = "full_sentence"
@@ -125,8 +126,9 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
                 continue
 
             anchor_text, target_text, marker_meta = _materialize_refs(rng, a, t, roles_to_mark)
+            gt_direction = _direction_phrase(rel)
             if style == FULL_SENTENCE:
-                direction = _direction_phrase(rel)
+                direction = gt_direction
                 q, ans, inst_mode, ans_mode = tpl.render_full_sentence_qa_pair_with_modes(
                     rng, anchor=anchor_text, target=target_text, direction=direction
                 )
@@ -177,6 +179,11 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
                     meta=meta,
                     relation_id=rel.get("relation_id"),
                 )
+            )
+            record_spatial_relation_2d_qa_stats(
+                sample_id=str(md.sample.sample_id),
+                qa_style=str(style),
+                gt_direction=str(gt_direction),
             )
             qa_index += 1
 
@@ -443,11 +450,12 @@ def _sample_judgment_mode(rng: random.Random, cfg: SpatialRelation2DConfig, rel:
     modes = []
     weights = []
     allow_partial = _allow_partial(cfg, rel)
+    jd = cfg.judgment_distribution or {}
     for key in ["incorrect", "partial", "correct"]:
         if key == "partial" and not allow_partial:
             continue
         modes.append(key)
-        weights.append(float(cfg.judgment_distribution.get(key, 0.0)))
+        weights.append(float(jd.get(key, 0.0)))
     if not modes:
         return "incorrect"
     return rng.choices(modes, weights=weights, k=1)[0]

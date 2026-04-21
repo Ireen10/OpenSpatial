@@ -19,6 +19,7 @@ from .config.loader import (
     resolve_adapter,
 )
 from .config.qa_tasks import build_qa_items, load_qa_tasks_config, resolve_qa_task_params
+from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
 
@@ -1039,6 +1040,17 @@ def _pipeline_flags(ds: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _maybe_print_spatial_relation_2d_qa_stats(*, ds: Any, split_name: str, pipe: Optional[Dict[str, Any]]) -> None:
+    if not pipe:
+        return
+    if not bool(pipe.get("ensure_qa", False)):
+        return
+    qa_task_name = str(pipe.get("qa_task_name") or "spatial_relation_2d")
+    if qa_task_name != "spatial_relation_2d":
+        return
+    print_and_reset_spatial_relation_2d_qa_stats(dataset=str(getattr(ds, "name", "unknown")), split=str(split_name))
+
+
 def _process_jsonl_files_training_parallel(
     files: List[Path],
     *,
@@ -1356,6 +1368,7 @@ def main(argv=None) -> None:
                                 remaining -= int(n_done)
                                 if remaining_total is not None:
                                     remaining_total = remaining
+                _maybe_print_spatial_relation_2d_qa_stats(ds=ds, split_name=split.name, pipe=pipe)
             elif split.input_type == "json_files":
                 if remaining is not None:
                     files = files[:remaining]

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import io
+import json
+import os
 import random
 import sys
 import unittest
@@ -22,14 +25,15 @@ from openspatial_metadata.qa.spatial_relation_2d import (
 class TestQaSpatialRelation2D(unittest.TestCase):
     def test_generates_qa_items_without_image_bytes(self):
         md = art.build_metadata_from_grounding("grounding_caption_dense_spatial.jsonl")
-        items = generate_spatial_relation_2d_qa_items(
-            md,
-            cfg=SpatialRelation2DConfig(
-                random_seed=7,
-                sub_tasks={"single_axis": 2, "full_sentence": 2, "judgment": 2},
-                dual_box_keep_prob=1.0,
-            ),
-        )
+        with patch.dict(os.environ, {"OPENSPATIAL_METADATA_QA_STATS": "1"}):
+            items = generate_spatial_relation_2d_qa_items(
+                md,
+                cfg=SpatialRelation2DConfig(
+                    random_seed=7,
+                    sub_tasks={"single_axis": 2, "full_sentence": 2, "judgment": 2},
+                    dual_box_keep_prob=1.0,
+                ),
+            )
         self.assertEqual(len(items), 6)
         self.assertTrue(all(it.question for it in items))
         self.assertTrue(all(it.answer for it in items))
@@ -38,6 +42,31 @@ class TestQaSpatialRelation2D(unittest.TestCase):
             self.assertIn("marked_roles", it.meta)
             self.assertIn("mark_colors", it.meta)
             self.assertIn("n_marked_boxes", it.meta)
+
+    def test_qa_stats_prints_gt_direction_histogram_to_stderr(self) -> None:
+        from openspatial_metadata.qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
+
+        md = art.build_metadata_from_grounding("grounding_caption_dense_spatial.jsonl")
+        buf = io.StringIO()
+        with patch.dict(os.environ, {"OPENSPATIAL_METADATA_QA_STATS": "1"}):
+            items = generate_spatial_relation_2d_qa_items(
+                md,
+                cfg=SpatialRelation2DConfig(
+                    random_seed=7,
+                    sub_tasks={"single_axis": 1, "full_sentence": 1, "judgment": 1},
+                    dual_box_keep_prob=1.0,
+                ),
+            )
+            with patch.object(sys, "stderr", buf):
+                print_and_reset_spatial_relation_2d_qa_stats(dataset="unit_ds", split="unit_split")
+        self.assertGreaterEqual(len(items), 1)
+        s = buf.getvalue().strip()
+        self.assertTrue(s.startswith("[openspatial-metadata][qa_stats]"))
+        payload = json.loads(s.split("[openspatial-metadata][qa_stats] ", 1)[1])
+        self.assertEqual(payload["dataset"], "unit_ds")
+        self.assertEqual(payload["split"], "unit_split")
+        self.assertGreaterEqual(int(payload["n_qa_items"]), len(items))
+        self.assertIsInstance(payload["top_gt_directions"], list)
 
     def test_task_description_placeholders_are_filled_in_all_three_parts(self):
         """TASK_DESCRIPTION_POOL uses {anchor}/{target}; must not leak into final prompts."""

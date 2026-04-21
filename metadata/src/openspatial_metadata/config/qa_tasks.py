@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
+
+from openspatial_metadata.qa.runtime_stats import (
+    print_and_reset_spatial_relation_2d_qa_stats,
+    qa_stats_enabled,
+    record_spatial_relation_2d_qa_stats,
+)
 
 
 @dataclass(frozen=True)
