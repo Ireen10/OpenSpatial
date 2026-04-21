@@ -51,6 +51,14 @@ qa_config: metadata/templates/configs_minimal/qa_tasks.yaml
 # Training bundle packing (after metadata_qa is written). rows_per_part must be a multiple of row_align.
 training_rows_per_part: 1024
 training_row_align: 16
+# Training export mode:
+# - true  -> streaming writer (default; lower peak memory)
+# - false -> legacy buffered writer (rollback/compat mode)
+pipeline_streaming_enabled: true
+# Tail handling when final rows are not aligned to training_row_align:
+# - drop    -> keep historical behavior (discard tail and print warning)
+# - sidecar -> write tail rows into jsonl/remainder_rows.jsonl
+training_remainder_mode: drop
 
 # Optional: Global defaults for OpenAI-compatible LLM adapters.
 # These keys are injected into adapter constructors only when the adapter __init__ has the same parameter name.

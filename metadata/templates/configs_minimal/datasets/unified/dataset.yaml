@@ -47,6 +47,10 @@ pipelines:
   ensure_qa: true
   export_training: true
   qa_task_name: "spatial_relation_2d"
+  # Default is true. Set false to rollback to legacy buffered export path.
+  pipeline_streaming_enabled: true
+  # Keep historical behavior by default; optional value: "sidecar".
+  training_remainder_mode: drop
 
 # =============================================================================
 # --- Optional blocks: uncomment or replace defaults above ---------------------
@@ -59,6 +63,8 @@ pipelines:
 #   ensure_qa: true
 #   export_training: true
 #   qa_task_name: "spatial_relation_2d"
+#   pipeline_streaming_enabled: true
+#   training_remainder_mode: drop
 # splits[0].inputs:
 #   - "path/to/metadata_noqa.jsonl"
 #
@@ -69,6 +75,8 @@ pipelines:
 #   ensure_qa: false
 #   export_training: true
 #   qa_task_name: "spatial_relation_2d"
+#   pipeline_streaming_enabled: true
+#   training_remainder_mode: drop
 # splits[0].inputs:
 #   - "path/to/metadata_qa.jsonl"
 #
@@ -121,4 +129,6 @@ pipelines:
 #   ensure_qa: true
 #   export_training: true
 #   qa_task_name: "spatial_relation_2d"
+#   pipeline_streaming_enabled: true
+#   training_remainder_mode: drop
 #
