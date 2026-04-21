@@ -7,7 +7,7 @@
 
 ## 当前阶段（一句话）
 
-已连续完成七轮 **pipeline 内部重构加固（batch-1 / batch-2 / batch-3 / batch-4 / strict_cleanup / batching_perf / perf_timing_nonintrusive）**：在不改核心产物语义前提下收口兼容逻辑、去重 training/export/QA 分发重复实现，明确 `strict` 固化，补齐 training pipeline 的批量写盘与批量 checkpoint，并新增不影响进度条的性能埋点；下一步继续完善 viz 的 QA 交互与更强的大数据体验（例如更严格的分页/索引策略）。
+已连续完成八轮 **pipeline 内部重构加固（batch-1 / batch-2 / batch-3 / batch-4 / strict_cleanup / batching_perf / perf_timing_nonintrusive / resume_perf_tqdm_stability）**：在不改核心产物语义前提下持续收口兼容逻辑并优化 pipeline 运行时开销；最新一轮修复了 resume 跳过阶段不必要 JSON 解析与 tqdm 并行显示干扰问题。下一步继续完善 viz 的 QA 交互与更强的大数据体验（例如更严格的分页/索引策略）。
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-21** | **resume 性能与 tqdm 稳定性修复（resume_perf_tqdm_stability）**：`iter_jsonl` 支持 `start_index` 并在 resume 跳过阶段避免无效 `json.loads`；并在 `progress=tqdm` 下抑制并行 worker 高频 done 日志，缓解控制台排版错乱。新增回归测试覆盖。收束见 `metadata/plans/2026-04-21_1503_resume_perf_tqdm_stability/change_log.md`。 |
 | **2026-04-21** | **非侵入性能埋点（perf_timing_nonintrusive）**：为 pipeline 增加 `checkpoint_write/metadata_dump/persist_noqa_write/persist_qa_write` phase 聚合，埋点仅进入 `--timing` 汇总，不新增运行中日志，不影响进度条显示。收束见 `metadata/plans/2026-04-21_1454_perf_timing_nonintrusive/change_log.md`。 |
 | **2026-04-21** | **training pipeline 批量写盘性能修正（batching_perf）**：`batch_size` 正式接入 training pipeline 的 `metadata_noqa/metadata_qa` 持久化与 checkpoint 频率控制（从逐条改为按批）；同时去除 `persist_noqa=false` 分支下 `noqa` 冗余 dump。新增回归测试覆盖。收束见 `metadata/plans/2026-04-21_1449_training_pipeline_batching_perf/change_log.md`。 |
 | **2026-04-21** | **strict 参数冗余清理**：移除 CLI 内部 `strict` 透传链路并固化严格模式；`strict=false` 由“隐式无效”改为“显式报错”；同步更新说明文档与测试签名。收束见 `metadata/plans/2026-04-21_1428_strict_cleanup/change_log.md`。 |
@@ -64,6 +65,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-21_1503_resume_perf_tqdm_stability/` | **已交付（实现 + 自测 + 收束）**：resume 跳过阶段性能优化 + tqdm 并行显示稳定性修复；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1454_perf_timing_nonintrusive/` | **已交付（实现 + 自测 + 收束）**：新增非侵入性能埋点（仅 `--timing` 汇总，不影响进度条）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1449_training_pipeline_batching_perf/` | **已交付（实现 + 自测 + 收束）**：training pipeline 批量写盘/批量 checkpoint + 冗余 dump 清理；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-21_1428_strict_cleanup/` | **已交付（实现 + 自测 + 收束）**：strict 冗余参数清理与行为固化（仅支持 true）；见该目录 `change_log.md` |

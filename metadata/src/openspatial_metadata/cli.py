@@ -379,9 +379,7 @@ def _process_jsonl_file(
 
     if records_parallelism <= 1:
         with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
-            for record, ref in iter_jsonl(input_path):
-                if ref.input_index < next_idx:
-                    continue
+            for record, ref in iter_jsonl(input_path, start_index=next_idx):
                 if max_records is not None and processed_this_run >= max_records:
                     break
                 with timed_phase(phase_timer, "adapter"):
@@ -464,9 +462,7 @@ def _process_jsonl_file(
 
         try:
             with JsonlWriter(output_path, append=resume and output_path.exists()) as w:
-                for record, ref in iter_jsonl(input_path):
-                    if ref.input_index < next_idx:
-                        continue
+                for record, ref in iter_jsonl(input_path, start_index=next_idx):
                     if max_records is not None and submitted >= max_records:
                         break
                     fut = ex.submit(_work, record, input_file=ref.input_file, input_index=int(ref.input_index))
@@ -760,9 +756,7 @@ def _process_jsonl_file_training_pipeline(
 
             if records_parallelism <= 1:
                 adapter = adapter_factory()
-                for record, ref in iter_jsonl(input_path):
-                    if ref.input_index < next_idx:
-                        continue
+                for record, ref in iter_jsonl(input_path, start_index=next_idx):
                     if max_records is not None and processed_this_run >= max_records:
                         break
 
@@ -834,9 +828,7 @@ def _process_jsonl_file_training_pipeline(
                         processed_this_run += 1
 
                 try:
-                    for record, ref in iter_jsonl(input_path):
-                        if ref.input_index < next_idx:
-                            continue
+                    for record, ref in iter_jsonl(input_path, start_index=next_idx):
                         if max_records is not None and submitted >= max_records:
                             break
                         fut = ex.submit(_work, record, input_file=ref.input_file, input_index=int(ref.input_index))
@@ -920,7 +912,8 @@ def _process_jsonl_files_parallel(
                 try:
                     n_done = int(fut.result())
                     total_records += n_done
-                    _log(f"{ds.name}/{split_name}: done {ip.name}")
+                    if _PROGRESS_MODE != "tqdm":
+                        _log(f"{ds.name}/{split_name}: done {ip.name}")
                 except Exception as exc:  # noqa: BLE001 — surface to user under strict
                     print(f"[openspatial-metadata] JSONL worker failed: {ip}\n{exc!r}", file=sys.stderr)
                     ex.shutdown(wait=True, cancel_futures=True)
@@ -1211,7 +1204,8 @@ def _process_jsonl_files_training_parallel(
                 try:
                     n_done = int(fut.result())
                     total_records += n_done
-                    _log(f"{ds.name}/{split_name}: done part={part_id} {ip.name}")
+                    if _PROGRESS_MODE != "tqdm":
+                        _log(f"{ds.name}/{split_name}: done part={part_id} {ip.name}")
                 except Exception as exc:  # noqa: BLE001
                     print(
                         f"[openspatial-metadata] pipeline worker failed: {ds.name}/{split_name} part={part_id} file={ip}\n{exc!r}",
@@ -1241,6 +1235,7 @@ def _process_jsonl_files_training_parallel(
                         enable_to_metadata=enable_to_metadata,
                         enable_ensure_qa=enable_ensure_qa,
                         persist_noqa=persist_noqa,
+                        batch_size=batch_size,
                         records_parallelism=records_parallelism,
                         tqdm_pos=slot2,
                         phase_timer=phase_timer,

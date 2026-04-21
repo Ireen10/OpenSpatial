@@ -15,10 +15,13 @@ class RecordRef:
     input_index: int
 
 
-def iter_jsonl(path: PathLike) -> Iterator[Tuple[Dict, RecordRef]]:
+def iter_jsonl(path: PathLike, *, start_index: int = 0) -> Iterator[Tuple[Dict, RecordRef]]:
     path = Path(path)
+    start = max(0, int(start_index or 0))
     with path.open("r", encoding="utf-8") as f:
         for idx, line in enumerate(f):
+            if idx < start:
+                continue
             line = line.strip()
             if not line:
                 continue
