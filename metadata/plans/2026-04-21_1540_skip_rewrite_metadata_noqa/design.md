@@ -20,12 +20,17 @@
 
 ## Design decision
 
-新增一个 **pipeline 级别**开关，让行为可控且默认不破坏已有依赖：
+把“是否需要从 raw 生成 metadata（`to_metadata`）”与“是否要把 no-QA 视图落盘到 `metadata_noqa/`”解耦，并让默认行为更符合直觉：
 
-- 新增 `pipelines.persist_noqa: bool`（默认 `true`，保持现状）
-- 对于“从 metadata_noqa 起步”的推荐模板（E2E-B / E2E-C），在模板里显式设置 `persist_noqa: false`
+- 新增 `pipelines.persist_noqa: Optional[bool]`：
+  - **未设置（null）时的默认规则**：
+    - 若 `to_metadata: true`（输入不是 metadata，确实在本次 run 生成了 metadata），则 **写出** `metadata_noqa/`
+    - 若 `to_metadata: false`（输入已经是 metadata），则 **不写出** `metadata_noqa/`，只产出新增阶段（`metadata_qa/`、training）
+  - 若显式设置：
+    - `persist_noqa: true`：无论 `to_metadata` 如何，均写出 `metadata_noqa/`（兼容旧脚本/需要规范化落盘的用户）
+    - `persist_noqa: false`：无论 `to_metadata` 如何，均不写出 `metadata_noqa/`
 
-当 `persist_noqa=false` 时：
+当最终决策为“不写 `metadata_noqa`”（即 `persist_noqa` 解析为 false）时：
 
 - training pipeline **不创建/不写入** `{split}/metadata_noqa/data_*.jsonl`
 - checkpoint 仍按输入文件 + 行号推进（不依赖 metadata_noqa 落盘）
@@ -35,8 +40,8 @@
 
 ## Compatibility / risks
 
-- **默认兼容**：不改默认行为（`persist_noqa` 默认 true）。
-- 依赖 `metadata_noqa/` 的下游（如某些 viz 期望）不会被默认破坏；当用户显式关闭后，相关 UI/脚本需要按“metadata_qa/ 视图”来浏览（或直接浏览输入文件）。
+- **默认行为变化（按语义更合理）**：当 `to_metadata=false` 且未设置 `persist_noqa` 时，将不再写出 `metadata_noqa/`。
+- 依赖 `metadata_noqa/` 的下游（如某些 viz 期望）可通过 `persist_noqa: true` 恢复旧行为。
 - 需要更新/新增测试，覆盖 `persist_noqa=false` 时不会写出 `metadata_noqa`，但仍会写出 `metadata_qa` 与 training。
 
 

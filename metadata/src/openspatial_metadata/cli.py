@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import time
+from contextlib import nullcontext
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from importlib import import_module
 from inspect import signature
@@ -623,6 +624,7 @@ def _process_jsonl_file_training_pipeline(
     qa_task_overrides: Optional[Dict[str, Any]],
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
+    persist_noqa: bool,
     records_parallelism: int = 1,
     max_records: Optional[int] = None,
     tqdm_pos: Optional[int] = None,
@@ -644,10 +646,10 @@ def _process_jsonl_file_training_pipeline(
 
     # Metadata outputs: {output_root}/{ds}/{split}/{metadata_noqa|metadata_qa}/data_{part_id:06d}.jsonl
     split_out = output_root / ds.name / split_name
-    noq_dir = _split_subdir(split_out, "metadata_noqa")
+    noq_dir = _split_subdir(split_out, "metadata_noqa") if persist_noqa else None
     qa_dir = _split_subdir(split_out, "metadata_qa")
     shard = _metadata_output_jsonl_name(part_id)
-    noq_path = noq_dir / shard
+    noq_path = (noq_dir / shard) if noq_dir is not None else None
     qa_path = qa_dir / shard
 
     qa_params = resolve_qa_task_params(qa_registry, qa_task_name=qa_task_name, overrides=qa_task_overrides)
@@ -669,9 +671,8 @@ def _process_jsonl_file_training_pipeline(
             bar.update(next_idx)
 
     try:
-        with JsonlWriter(noq_path, append=resume and noq_path.exists()) as w_noq, JsonlWriter(
-            qa_path, append=resume and qa_path.exists()
-        ) as w_qa:
+        w_noq_ctx = JsonlWriter(noq_path, append=resume and noq_path.exists()) if noq_path is not None else None
+        with (w_noq_ctx or nullcontext()) as w_noq, JsonlWriter(qa_path, append=resume and qa_path.exists()) as w_qa:
             def _write_checkpoint(next_to_write: int) -> None:
                 _write_checkpoint_atomic(
                     ckpt_path, {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0}
@@ -711,7 +712,8 @@ def _process_jsonl_file_training_pipeline(
                     # Always persist the noqa view (one line per input record). When qa_items is empty, skip
                     # metadata_qa and training export for that record (export still requires non-empty qa_items).
                     with timed_phase(phase_timer, "persist_shards"):
-                        w_noq.write_records([_md_dump(md_noqa)])
+                        if w_noq is not None:
+                            w_noq.write_records([_md_dump(md_noqa)])
 
                         # Persist the "qa" view only when there is at least 1 QA item.
                         if md_qa.qa_items:
@@ -784,7 +786,8 @@ def _process_jsonl_file_training_pipeline(
                     while next_to_write in done and (max_records is None or processed_this_run < max_records):
                         (noq_payload, qa_payload) = done.pop(next_to_write)
                         with timed_phase(phase_timer, "persist_shards"):
-                            w_noq.write_records([noq_payload])
+                            if w_noq is not None:
+                                w_noq.write_records([noq_payload])
                             if qa_payload is not None:
                                 w_qa.write_records([qa_payload])
                         next_to_write += 1
@@ -813,7 +816,8 @@ def _process_jsonl_file_training_pipeline(
                     while next_to_write in done and (max_records is None or processed_this_run < max_records):
                         (noq_payload, qa_payload) = done.pop(next_to_write)
                         with timed_phase(phase_timer, "persist_shards"):
-                            w_noq.write_records([noq_payload])
+                            if w_noq is not None:
+                                w_noq.write_records([noq_payload])
                             if qa_payload is not None:
                                 w_qa.write_records([qa_payload])
                         next_to_write += 1
@@ -1086,6 +1090,24 @@ def _pipeline_flags(ds: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _effective_persist_noqa(*, pipe: Optional[Dict[str, Any]], enable_to_metadata: bool) -> bool:
+    """
+    Decide whether to write `{split}/metadata_noqa/data_*.jsonl` during the training pipeline.
+
+    Rules:
+    - If pipelines.persist_noqa is explicitly set (true/false), honor it.
+    - Otherwise, default to `enable_to_metadata`:
+      - starting from raw (to_metadata=true) => write metadata_noqa
+      - starting from metadata (to_metadata=false) => don't rewrite metadata_noqa
+    """
+    if not pipe:
+        return True
+    v = pipe.get("persist_noqa")
+    if isinstance(v, bool):
+        return v
+    return bool(enable_to_metadata)
+
+
 def _maybe_print_spatial_relation_2d_qa_stats(*, ds: Any, split_name: str, pipe: Optional[Dict[str, Any]]) -> None:
     if not pipe:
         return
@@ -1115,6 +1137,7 @@ def _process_jsonl_files_training_parallel(
     qa_task_overrides: Optional[Dict[str, Any]],
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
+    persist_noqa: bool,
     phase_timer: Optional[PhaseTimer] = None,
 ) -> int:
     ex = ThreadPoolExecutor(max_workers=effective)
@@ -1143,6 +1166,7 @@ def _process_jsonl_files_training_parallel(
                 qa_task_overrides=qa_task_overrides,
                 enable_to_metadata=enable_to_metadata,
                 enable_ensure_qa=enable_ensure_qa,
+                persist_noqa=persist_noqa,
                 records_parallelism=records_parallelism,
                 tqdm_pos=slot,
                 phase_timer=phase_timer,
@@ -1184,6 +1208,7 @@ def _process_jsonl_files_training_parallel(
                         qa_task_overrides=qa_task_overrides,
                         enable_to_metadata=enable_to_metadata,
                         enable_ensure_qa=enable_ensure_qa,
+                        persist_noqa=persist_noqa,
                         records_parallelism=records_parallelism,
                         tqdm_pos=slot2,
                         phase_timer=phase_timer,
@@ -1322,6 +1347,7 @@ def main(argv=None) -> None:
                     enable_to_metadata = bool(pipe.get("to_metadata", True))
                     enable_ensure_qa = bool(pipe.get("ensure_qa", True))
                     enable_export = bool(pipe.get("export_training", True))
+                    persist_noqa = _effective_persist_noqa(pipe=pipe, enable_to_metadata=enable_to_metadata)
                     training_root = _training_output_root(args.output_root, ds, g)
                     rows_pt, row_al = _training_pack_settings(g, pipe)
                     _log(
@@ -1347,6 +1373,7 @@ def main(argv=None) -> None:
                             qa_task_overrides=qa_task_overrides,
                             enable_to_metadata=enable_to_metadata,
                             enable_ensure_qa=enable_ensure_qa,
+                            persist_noqa=persist_noqa,
                             phase_timer=split_phase_timer,
                         )
                     else:
@@ -1370,6 +1397,7 @@ def main(argv=None) -> None:
                                 qa_task_overrides=qa_task_overrides,
                                 enable_to_metadata=enable_to_metadata,
                                 enable_ensure_qa=enable_ensure_qa,
+                                persist_noqa=persist_noqa,
                                 records_parallelism=rec_par,
                                 max_records=remaining,
                                 tqdm_pos=0,

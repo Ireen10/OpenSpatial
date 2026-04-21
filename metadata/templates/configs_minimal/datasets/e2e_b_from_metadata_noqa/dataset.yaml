@@ -32,6 +32,8 @@ splits:
 pipelines:
   # Input is already metadata
   to_metadata: false
+  # Do not rewrite metadata_noqa when starting from metadata.
+  persist_noqa: false
   ensure_qa: true
   export_training: true
   qa_task_name: "spatial_relation_2d"

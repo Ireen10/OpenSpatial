@@ -30,6 +30,8 @@ splits:
 
 pipelines:
   to_metadata: false
+  # Do not rewrite metadata_noqa when starting from metadata.
+  persist_noqa: false
   # QA already exists, so skip generation:
   ensure_qa: false
   export_training: true
