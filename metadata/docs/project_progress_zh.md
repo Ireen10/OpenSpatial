@@ -15,6 +15,9 @@
 
 | 时间 / 轮次 | 交付摘要 |
 |-------------|----------|
+| **2026-04-21** | **pipeline（从 metadata 起步不再重写 metadata_noqa）**：当 `pipelines.to_metadata=false` 时，默认不再写出 `{split}/metadata_noqa/`（只产出 `metadata_qa/` 与 training）；新增 `pipelines.persist_noqa: true` 可强制写回以兼容旧脚本；E2E-B/E2E-C 模板显式设为 `false`；补 UT 覆盖。收束见 `metadata/plans/2026-04-21_1540_skip_rewrite_metadata_noqa/change_log.md`。 |
+| **2026-04-21** | **图像读取兼容 tar（按分片 image_archive_pattern）**：`SplitSpec.image_archive_pattern` 支持按 shard 解析 `part_{shard:06d}.tar`，训练导出与部分 vision adapter 可直接从 tar 读取 `sample.image.path` 对应成员；同步补模板注释与测试覆盖。 |
+| **2026-04-21** | **viz 稳定性**：对未配置 `viz.image_root` 的数据集在 viz 列表中默认跳过（避免浏览时触发 `/api/image` 报错）；同时修复 export 包 import-time re-export 引起的循环导入问题（`load_pil_for_metadata` partially initialized）。 |
 | **2026-04-20** | **小批量验证与调试体验**：CLI 新增 `--max-records-total`（跨所有 dataset/split 总量上限）与 `--max-records-per-split`（每 split 上限），便于快速抽样验证；`ExpressionRefreshQwenAdapter` 支持 `print_llm_output` 将模型 JSON 输出直接打印到 stderr（不落盘）；文档同步更新 `config_yaml_zh.md`/`metadata/README.md` 并新增 UT 覆盖。 |
 | **2026-04-20** | **去重 adapter 接入模板**：新增 `ObjectDedupExactAdapter`（按 `bbox_xyxy_norm_1000` + `phrase` 完全一致去重并重写 queries），并将其作为推荐步骤接入 E2E-D 模板（`e2e_d_grounding_refresh_qa_training`）放在 LLM refresh 之后。 |
 | **2026-04-20** | **指代表达刷新（Qwen VL / OpenAI 兼容 API）**：`OpenAICompatibleChatClient`（`POST …/v1/chat/completions`）；`ExpressionRefreshQwenAdapter`（按 bbox 刷新 `phrase`/`category`，禁止位置词，`phrase` 为 null 时丢弃 object 并重写 queries）；`AdapterSpec.params` + CLI 传入 `dataset_config_path` 解析 `image_root`；文档与测试见 `metadata/plans/2026-04-20_1700_expression_refresh_qwen_llm/change_log.md`。 |
@@ -54,6 +57,7 @@
 
 | 目录 | 状态 |
 |------|------|
+| `metadata/plans/2026-04-21_1540_skip_rewrite_metadata_noqa/` | **已交付（实现 + 自测 + 收束）**：从 metadata 起步时默认不重写 `metadata_noqa/`（可用 `persist_noqa` 覆盖）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-17_2350_viz_qa_and_training_viewer/` | **已交付（实现 + 自测 + 收束）**：viz 配置化 + 兼容 QA/training（分页 + tar 切片读图）；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-17_1059_training_export_parallel_io/` | **已交付（实现 + 自测 + 收束）**：dataset-level pipeline（ensure_qa + training export）、并行与 resume；见该目录 `change_log.md` |
 | `metadata/plans/2026-04-16_2006_2d_relation_annotation_task/` | **已交付（首轮实现 + 收束）**：2D 空间关系 annotation task + `relation_id`；见该目录 `change_log.md`、`plan.md` 收束节 |

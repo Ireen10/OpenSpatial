@@ -134,7 +134,10 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                             ),
                             "config_path": ent.config_path,
                         }
+                        # Datasets without viz.image_root cannot serve /api/image; hide them from viz to avoid
+                        # confusing runtime errors when browsing metadata.
                         for name, ent in sorted(dataset_index.items())
+                        if (ent.dataset.viz is not None and getattr(ent.dataset.viz, "image_root", None))
                     ],
                 }
                 _send_json(self, cfg)
