@@ -69,6 +69,24 @@ def _build_spatial_relation_2d_items(md: Any, *, params: Dict[str, Any]) -> List
     return generate_spatial_relation_2d_qa_items(md, cfg=config_from_params(params))
 
 
+def _can_build_spatial_relation_2d_items(md: Any, *, params: Dict[str, Any]) -> bool:
+    objects = getattr(md, "objects", None)
+    relations = getattr(md, "relations", None)
+    if not objects or not relations:
+        return False
+    sub_tasks = params.get("sub_tasks")
+    if isinstance(sub_tasks, dict):
+        planned = 0
+        for v in sub_tasks.values():
+            try:
+                planned += max(0, int(v))
+            except (TypeError, ValueError):
+                continue
+        if planned <= 0:
+            return False
+    return True
+
+
 def _build_items_via_convention(md: Any, *, qa_task_name: str, params: Dict[str, Any]) -> List[Any]:
     mod = import_module(f"openspatial_metadata.qa.{qa_task_name}")
     cfg_fn = getattr(mod, "config_from_params")
@@ -83,6 +101,8 @@ def build_qa_items(md: Any, *, qa_task_name: str, params: Dict[str, Any]) -> Lis
     This keeps the CLI/runner generic while letting QA implementations live under ``openspatial_metadata.qa``.
     """
     spec = params  # already merged defaults+overrides
+    if qa_task_name == "spatial_relation_2d" and not _can_build_spatial_relation_2d_items(md, params=spec):
+        return []
     explicit_builders = {"spatial_relation_2d": _build_spatial_relation_2d_items}
     builder = explicit_builders.get(qa_task_name)
     if builder is not None:

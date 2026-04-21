@@ -31,7 +31,7 @@
   - 标注形态：可为**无标记原图**，也可为**带 2D 框标记的图**。
 - 文本
   - 必须包含对 **anchor** 与 **target** 的指代表达（referring expression）。
-  - 当图片为“带框标记”时，文本中的指代需增加与标记对应的备注（例如“（图中红框内的对象）”），以显式绑定语言与视觉标记。
+  - 当图片为“带框标记”时，文本中的指代需增加与标记对应的备注（例如"(the {category} in the red box)"），以显式绑定语言与视觉标记。
 
 #### 模型输出（Output）
 
@@ -116,6 +116,7 @@
 当 metadata 来源于 Grounding 数据（Grounding QA 与 Grounded Caption）时，上游数据的指代表达质量与定位质量标准，直接作为 2D 空间关系 metadata 中指代表达与 grounding 质量标准。
 
 - 指代不包含位置信息：指代表达中不应出现图像平面方位/位置线索（如“左边/右侧/上方/左上角/画面右边”等），避免将空间关系答案信息泄露到输入文本中。
+- 刷新结果约束：刷新后的 `phrase` 应满足“非位置词、实例可区分、与 bbox 对齐可追溯”；无法稳定生成时可按策略保留原表达或丢弃对象。
 
 ### 3.3 QA 质量
 
@@ -138,16 +139,15 @@ Response 规范：
 
 ### 4.1 端到端流程概览
 
-- 数据入口（两种）：
-  - A. Grounding 数据（现有 Grounding QA 与 Grounded Caption）；
-  - B. 已有 metadata（跳过对象抽取步骤，直接进入 ensure_qa / export_training）。
-- 对于入口 A：解析指代与 bbox 信息，从文本/标注中抽取对象指代表达（phrase）及对应 2D bbox，形成对象集合（objects）。
-- bbox 有效性筛选：对 objects/boxes 做基础过滤（如几何非法、越界、面积过小、异常长宽比、上限截断），仅保留有效对象进入后续关系计算。
+- 数据入口：Grounding 数据（现有 Grounding QA 与 Grounded Caption）；
+- 指代表达刷新：基于图像 + bbox 调用视觉 LLM（常用 `Qwen3-VL-32B-Instruct`）刷新 `phrase/category`；必要时先做 bbox 去重，再做刷新后去重。
+- bbox 有效性筛选：对 objects/boxes 做基础过滤（几何非法、越界、面积过小、异常长宽比、上限截断），仅保留有效对象进入后续关系计算。
 - 筛选对象对：对保留对象两两成对生成候选对，并按规则跳过已存在边、过滤不可靠候选对并留痕。
 - 计算 2D 方位：基于两对象几何（中心点差值 \((dx,dy)\) 与阈值）推导平面方位。
 - 生成 2D 空间关系 metadata：将保留关系写入 `relations`，将对象过滤与候选对过滤原因/统计写入 `aux`，形成可追溯 2D 关系元数据。
-- QA 对生成：基于 metadata（对象、关系、证据）按既定问法模板生成 `qa_items`（当样本已有 `qa_items` 时可跳过重建）。
-- 数据质检：对 metadata 与 QA 做质量检查。
+- QA 对生成：基于 metadata（对象、关系、证据）按既定问法模板生成 `qa_items`。
+- 转换训练数据格式：按 pipeline 将 `metadata` 打包为pangu_ml训练数据格式（`images/*.tar + jsonl/*.jsonl`）。
+- 数据质检：对 metadata、QA 与导出产物做质量检查。
 
 ### 4.2 bbox 有效性筛选逻辑
 
@@ -174,6 +174,7 @@ Response 规范：
 对通过候选对筛选的对象对，使用代表点（bbox 中心或 point）计算 `delta_uv = target - anchor`，并按阈值判断横向/纵向方位：
 
 - 当横纵两轴均显著时，输出复合方位（通过 `components` 表达），并在关系证据中保留代表点与 `delta_uv` 等计算依据。
+- 当仅单轴显著时，输出单轴方位（左/右/上/下）；近似持平或不可靠候选对会被过滤并留痕。
 
 ### 4.5 QA 多样化方案
 

@@ -22,9 +22,32 @@ from openspatial_metadata.qa.spatial_relation_2d import (
     _atomic_direction_for_short_answer,
     generate_spatial_relation_2d_qa_items,
 )
+from openspatial_metadata.utils.pydantic_compat import model_copy_update_compat
 
 
 class TestQaSpatialRelation2D(unittest.TestCase):
+    def test_early_return_when_objects_or_relations_missing(self) -> None:
+        md = art.build_metadata_from_grounding("grounding_caption_dense_spatial.jsonl")
+        cfg = SpatialRelation2DConfig(
+            random_seed=7,
+            sub_tasks={"single_axis": 1, "full_sentence": 1, "judgment": 1},
+            dual_box_keep_prob=1.0,
+        )
+        md_no_objects = model_copy_update_compat(md, update={"objects": []})
+        md_no_relations = model_copy_update_compat(md, update={"relations": []})
+
+        self.assertEqual(generate_spatial_relation_2d_qa_items(md_no_objects, cfg=cfg), [])
+        self.assertEqual(generate_spatial_relation_2d_qa_items(md_no_relations, cfg=cfg), [])
+
+    def test_early_return_when_subtasks_all_zero(self) -> None:
+        md = art.build_metadata_from_grounding("grounding_caption_dense_spatial.jsonl")
+        cfg = SpatialRelation2DConfig(
+            random_seed=7,
+            sub_tasks={"single_axis": 0, "full_sentence": 0, "judgment": 0},
+            dual_box_keep_prob=1.0,
+        )
+        self.assertEqual(generate_spatial_relation_2d_qa_items(md, cfg=cfg), [])
+
     def test_atomic_short_direction_eight_way(self) -> None:
         self.assertEqual(len(SHORT_DIRECTION_ALL), 8)
         self.assertEqual(len(set(SHORT_DIRECTION_ALL)), 8)

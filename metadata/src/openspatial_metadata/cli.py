@@ -26,7 +26,7 @@ from .io.image_archive import resolve_image_archive_path
 from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
-from .utils.pydantic_compat import model_dump_compat, model_validate_compat
+from .utils.pydantic_compat import model_copy_update_compat, model_dump_compat, model_validate_compat
 
 PARALLEL_WORKERS_CAP = 32
 
@@ -734,9 +734,8 @@ def _process_jsonl_file_training_pipeline(
                 if enable_ensure_qa and not md_noqa.qa_items:
                     with timed_phase(phase_timer, "qa_build"):
                         items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                        payload = _md_dump_timed(md_noqa, phase_timer=phase_timer)
-                        payload["qa_items"] = [_qa_item_dump(it) for it in items]
-                        md_qa = _md_validate(payload)
+                        if items:
+                            md_qa = model_copy_update_compat(md_noqa, update={"qa_items": items})
                 return md_noqa, md_qa
 
             def _enqueue_payloads(

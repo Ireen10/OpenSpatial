@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 import openspatial_metadata.cli as cli_mod
 from openspatial_metadata.config.qa_tasks import QaTaskSpec
+from openspatial_metadata.schema.metadata_v0 import AnnotationQaItemV0
 
 
 class _Ds:
@@ -86,13 +87,13 @@ def test_training_pipeline_skips_noqa_dump_when_not_persisting(tmp_path: Path, m
     output_root = tmp_path / "out"
     checkpoint_root = tmp_path / "ckpt"
     dump_calls = {"n": 0}
-    orig_md_dump = cli_mod._md_dump
+    orig_md_dump_timed = cli_mod._md_dump_timed
 
-    def _counting_md_dump(md):
+    def _counting_md_dump_timed(md, *, phase_timer=None):
         dump_calls["n"] += 1
-        return orig_md_dump(md)
+        return orig_md_dump_timed(md, phase_timer=phase_timer)
 
-    monkeypatch.setattr(cli_mod, "_md_dump", _counting_md_dump)
+    monkeypatch.setattr(cli_mod, "_md_dump_timed", _counting_md_dump_timed)
 
     registry = {"spatial_relation_2d": QaTaskSpec(name="spatial_relation_2d", type="spatial_relation_2d", params={})}
     n_done = cli_mod._process_jsonl_file_training_pipeline(
@@ -122,3 +123,62 @@ def test_training_pipeline_skips_noqa_dump_when_not_persisting(tmp_path: Path, m
     assert n_done == 3
     # No QA items + persist_noqa=False => no payload serialization should be needed.
     assert dump_calls["n"] == 0
+
+
+def test_training_pipeline_ensure_qa_avoids_extra_intermediate_dump(tmp_path: Path, monkeypatch) -> None:
+    ip = tmp_path / "in.jsonl"
+    _write_jsonl(ip, 2)
+
+    output_root = tmp_path / "out"
+    checkpoint_root = tmp_path / "ckpt"
+    dump_calls = {"n": 0}
+    orig_md_dump_timed = cli_mod._md_dump_timed
+
+    def _counting_md_dump_timed(md, *, phase_timer=None):
+        dump_calls["n"] += 1
+        return orig_md_dump_timed(md, phase_timer=phase_timer)
+
+    def _fake_build_qa_items(md, *, qa_task_name, params):
+        return [
+            AnnotationQaItemV0(
+                qa_id="qa#0",
+                task="spatial_relation_2d",
+                question="q",
+                answer="a",
+                question_type="open_ended",
+                question_tags=["2D Spatial Relation"],
+                meta={},
+            )
+        ]
+
+    monkeypatch.setattr(cli_mod, "_md_dump_timed", _counting_md_dump_timed)
+    monkeypatch.setattr(cli_mod, "build_qa_items", _fake_build_qa_items)
+
+    registry = {"spatial_relation_2d": QaTaskSpec(name="spatial_relation_2d", type="spatial_relation_2d", params={})}
+    n_done = cli_mod._process_jsonl_file_training_pipeline(
+        ip,
+        part_id=0,
+        resume=False,
+        output_root=output_root,
+        checkpoint_root=checkpoint_root,
+        adapter_factory=lambda: None,
+        relations_2d=False,
+        ds=_Ds("demo_ds"),
+        split_name="train",
+        dataset_path=str(tmp_path / "dataset.yaml"),
+        qa_registry=registry,
+        qa_task_name="spatial_relation_2d",
+        qa_task_overrides=None,
+        enable_to_metadata=False,
+        enable_ensure_qa=True,
+        persist_noqa=False,
+        batch_size=2,
+        records_parallelism=1,
+        max_records=None,
+        tqdm_pos=None,
+        phase_timer=None,
+    )
+
+    assert n_done == 2
+    # Only final qa payload dumps are needed (one per record) after removing intermediate md dump/validate chain.
+    assert dump_calls["n"] == 2

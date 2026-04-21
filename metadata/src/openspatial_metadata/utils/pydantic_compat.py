@@ -17,3 +17,10 @@ def model_validate_compat(model_cls: Any, payload: Any) -> Any:
     if hasattr(model_cls, "model_validate"):
         return model_cls.model_validate(payload)
     return model_cls.parse_obj(payload)
+
+
+def model_copy_update_compat(model: Any, *, update: Dict[str, Any]) -> Any:
+    """Return a copied model with field updates across Pydantic v1/v2."""
+    if hasattr(model, "model_copy"):
+        return model.model_copy(update=update)
+    return model.copy(update=update)

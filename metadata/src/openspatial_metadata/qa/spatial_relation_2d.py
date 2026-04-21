@@ -152,7 +152,20 @@ class SpatialRelation2DConfig:
 def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelation2DConfig) -> List[AnnotationQaItemV0]:
     rng = random.Random(cfg.random_seed)
 
-    objects = [model_dump_compat(o) for o in (md.objects or [])]
+    raw_objects = md.objects or []
+    raw_relations = md.relations or []
+    if not raw_objects or not raw_relations:
+        return []
+
+    requested = {
+        SINGLE_AXIS: max(0, int(cfg.sub_tasks.get(SINGLE_AXIS, 0))),
+        FULL_SENTENCE: max(0, int(cfg.sub_tasks.get(FULL_SENTENCE, 0))),
+        JUDGMENT: max(0, int(cfg.sub_tasks.get(JUDGMENT, 0))),
+    }
+    if sum(requested.values()) <= 0:
+        return []
+
+    objects = [model_dump_compat(o) for o in raw_objects]
     object_map = {o.get("object_id"): o for o in objects if isinstance(o, dict) and isinstance(o.get("object_id"), str)}
     name_counts: Dict[str, int] = {}
     for o in object_map.values():
@@ -161,7 +174,7 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
         name_counts[n] = name_counts.get(n, 0) + 1
 
     candidates: List[dict] = []
-    for rel in (md.relations or []):
+    for rel in raw_relations:
         r = model_dump_compat(rel)
         if r.get("ref_frame") != "image_plane":
             continue
@@ -183,11 +196,6 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
     if cfg.prioritize_low_mark_relations:
         candidates.sort(key=lambda r: _mark_tier(object_map[r["anchor_id"]], object_map[r["target_id"]], name_counts))
 
-    requested = {
-        SINGLE_AXIS: max(0, int(cfg.sub_tasks.get(SINGLE_AXIS, 0))),
-        FULL_SENTENCE: max(0, int(cfg.sub_tasks.get(FULL_SENTENCE, 0))),
-        JUDGMENT: max(0, int(cfg.sub_tasks.get(JUDGMENT, 0))),
-    }
     plan = _plan_counts(rng, requested, len(candidates), cfg.shortage_randomness)
     alloc = _allocate_relations(candidates, plan)
 
