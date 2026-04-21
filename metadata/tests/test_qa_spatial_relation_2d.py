@@ -17,12 +17,32 @@ import spatial_relation_2d_artifacts as art
 
 from openspatial_metadata.prompt_templates import spatial_relation_2d_prompt_templates as prompt_tpl
 from openspatial_metadata.qa.spatial_relation_2d import (
+    SHORT_DIRECTION_ALL,
     SpatialRelation2DConfig,
+    _atomic_direction_for_short_answer,
     generate_spatial_relation_2d_qa_items,
 )
 
 
 class TestQaSpatialRelation2D(unittest.TestCase):
+    def test_atomic_short_direction_eight_way(self) -> None:
+        self.assertEqual(len(SHORT_DIRECTION_ALL), 8)
+        self.assertEqual(len(set(SHORT_DIRECTION_ALL)), 8)
+        cases = [
+            ({"components": ["left"]}, "left"),
+            ({"components": ["right"]}, "right"),
+            ({"components": ["above"]}, "above"),
+            ({"components": ["below"]}, "below"),
+            ({"components": ["left", "above"]}, "upper left"),
+            ({"components": ["above", "left"]}, "upper left"),
+            ({"components": ["left", "below"]}, "lower left"),
+            ({"components": ["right", "above"]}, "upper right"),
+            ({"components": ["right", "below"]}, "lower right"),
+            ({"components": [], "predicate": "right"}, "right"),
+        ]
+        for rel, want in cases:
+            self.assertEqual(_atomic_direction_for_short_answer(rel), want, msg=repr(rel))
+
     def test_generates_qa_items_without_image_bytes(self):
         md = art.build_metadata_from_grounding("grounding_caption_dense_spatial.jsonl")
         with patch.dict(os.environ, {"OPENSPATIAL_METADATA_QA_STATS": "1"}):

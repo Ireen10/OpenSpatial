@@ -1,6 +1,7 @@
 ## Dataset template: E2E-C (metadata(withQA) -> training)
 #
 # Use this when your input MetadataV0 jsonl already contains qa_items.
+# Typical source: a prior CLI run’s `metadata_qa/data_*.jsonl` (or any flat jsonl of MetadataV0 + qa_items).
 
 name: "your_dataset_name"
 
@@ -16,10 +17,14 @@ splits:
     inputs:
       - "path/to/metadata_withqa.metadata.jsonl"
 
-# Optional adapters chain (already-metadata input can still be post-processed).
+# Optional `adapters:` list (order = chain). When 2+ entries, optional `adapter_chain:` applies
+# (see templates e2e_a / e2e_d).
 # adapters:
 #   - file_name: "passthrough"
 #     class_name: "PassthroughAdapter"
+# adapter_chain:
+#   strict_dict: true
+#   validate_metadata_from_adapter_index: 1
 
 pipelines:
   to_metadata: false

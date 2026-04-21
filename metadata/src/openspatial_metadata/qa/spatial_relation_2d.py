@@ -9,6 +9,7 @@ This module is metadata-native:
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -47,8 +48,83 @@ DIR_OPPOSITE = {
 }
 AXIS_OPTIONS = {"horizontal": ("left", "right"), "vertical": ("above", "below")}
 
+# Eight canonical tokens for short_phrase answers (cardinals + corners; corners match DIR_PHRASE).
+SHORT_DIRECTION_ALL: Tuple[str, ...] = (
+    "left",
+    "right",
+    "above",
+    "below",
+    "upper left",
+    "lower left",
+    "upper right",
+    "lower right",
+)
+_SHORT_DIRECTION_DIAGONAL: Dict[frozenset, str] = {
+    frozenset(("left", "above")): "upper left",
+    frozenset(("left", "below")): "lower left",
+    frozenset(("right", "above")): "upper right",
+    frozenset(("right", "below")): "lower right",
+}
+
 # Match VisualMarker default color queue order for box marks.
 COLOR_QUEUE_DEFAULT = ["red", "blue", "green", "pink", "yellow", "orange", "purple", "brown"]
+
+# Leading article as its own token, then whitespace: strips "The cat" / "a dog" but not "apple"
+# (no `\b`: the required `\s+` after the article avoids matching the `a` inside "apple").
+_LEADING_DET_RE = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
+
+
+def _strip_leading_determiner_phrase(s: str) -> str:
+    t = (s or "").strip()
+    if not t:
+        return t
+    return _LEADING_DET_RE.sub("", t).lstrip()
+
+
+def _normalize_np_for_qa(surface: str) -> str:
+    """
+    Normalize referring surfaces for QA prompts/answers:
+    - strip a leading English determiner (the/a/an)
+    - prefix with lowercase "the " (English-only heuristic)
+    """
+    core = _strip_leading_determiner_phrase(surface)
+    if not core:
+        return "the object"
+    return f"the {core}"
+
+
+def _atomic_direction_for_short_answer(rel: dict) -> str:
+    """
+    For short_phrase answers, return a compact direction token (no "to the ... of").
+
+    Cardinals: left, right, above, below. Diagonals: upper left, lower left, upper right,
+    lower right — aligned with ``DIR_PHRASE`` / ``DIR_OPPOSITE`` corner wording.
+    """
+    parts = [str(c) for c in (rel.get("components") or []) if isinstance(c, str) and c.strip()]
+    if len(parts) == 1 and parts[0] in ATOMIC_TO_AXIS:
+        return parts[0]
+    if len(parts) == 2:
+        key = frozenset(parts)
+        if key in _SHORT_DIRECTION_DIAGONAL:
+            return _SHORT_DIRECTION_DIAGONAL[key]
+        return f"{parts[0]} {parts[1]}"
+    pred = rel.get("predicate")
+    if isinstance(pred, str) and pred and pred in ATOMIC_TO_AXIS:
+        return str(pred)
+    return "left"
+
+
+def _display_name(obj: dict) -> str:
+    for key in ["phrase", "category", "object_id"]:
+        value = obj.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "object"
+
+
+def _name_count_key(obj: dict) -> str:
+    """Key for counting object label uniqueness; ignores leading determiners and case."""
+    return _strip_leading_determiner_phrase(_display_name(obj)).strip().lower()
 
 
 def _default_sub_tasks() -> Dict[str, int]:
@@ -79,7 +155,8 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
     object_map = {o.get("object_id"): o for o in objects if isinstance(o, dict) and isinstance(o.get("object_id"), str)}
     name_counts: Dict[str, int] = {}
     for o in object_map.values():
-        n = _display_name(o)
+        # Count surfaces in a determiner-insensitive way so "a dog" vs "the dog" doesn't break uniqueness logic.
+        n = _name_count_key(o)
         name_counts[n] = name_counts.get(n, 0) + 1
 
     candidates: List[dict] = []
@@ -126,12 +203,22 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
                 continue
 
             anchor_text, target_text, marker_meta = _materialize_refs(rng, a, t, roles_to_mark)
+            anchor_text = _normalize_np_for_qa(anchor_text)
+            target_text = _normalize_np_for_qa(target_text)
+            if isinstance(marker_meta.get("shared_description"), str) and marker_meta["shared_description"].strip():
+                marker_meta["shared_description"] = _normalize_np_for_qa(marker_meta["shared_description"])
             gt_direction = _direction_phrase(rel)
             if style == FULL_SENTENCE:
-                direction = gt_direction
+                # Full-sentence mode uses the natural-language direction phrase.
+                # short_phrase answers should use atomic tokens (left/right/...) instead of "to the left of".
                 q, ans, inst_mode, ans_mode = tpl.render_full_sentence_qa_pair_with_modes(
-                    rng, anchor=anchor_text, target=target_text, direction=direction
+                    rng, anchor=anchor_text, target=target_text, direction=gt_direction
                 )
+                if ans_mode == "short_phrase":
+                    atom = _atomic_direction_for_short_answer(rel)
+                    ans = tpl.render_full_sentence_answer_by_mode(
+                        rng, mode="short_phrase", anchor=anchor_text, target=target_text, direction=atom
+                    )
                 marker_meta["instruction_mode"] = inst_mode
                 marker_meta["answer_mode"] = ans_mode
             elif style == SINGLE_AXIS:
@@ -151,8 +238,8 @@ def generate_spatial_relation_2d_qa_items(md: MetadataV0, *, cfg: SpatialRelatio
                 "qa_style": style,
                 "anchor_id": a["object_id"],
                 "target_id": t["object_id"],
-                "anchor_text": _display_name(a),
-                "target_text": _display_name(t),
+                "anchor_text": anchor_text,
+                "target_text": target_text,
                 "predicate": rel.get("predicate"),
                 "components": list(rel.get("components") or []),
                 "ref_frame": rel.get("ref_frame"),
@@ -238,14 +325,6 @@ def _bbox_of(obj: dict):
     return bbox if isinstance(bbox, list) and len(bbox) == 4 else None
 
 
-def _display_name(obj: dict) -> str:
-    for key in ["phrase", "category", "object_id"]:
-        value = obj.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return "object"
-
-
 def _same_surface_description(anchor: dict, target: dict) -> bool:
     a = _display_name(anchor).strip().lower()
     b = _display_name(target).strip().lower()
@@ -254,15 +333,15 @@ def _same_surface_description(anchor: dict, target: dict) -> bool:
 
 def _is_relation_usable(anchor: dict, target: dict, name_counts: Dict[str, int]) -> bool:
     # If both are unique by text, always usable.
-    if name_counts.get(_display_name(anchor), 0) == 1 and name_counts.get(_display_name(target), 0) == 1:
+    if name_counts.get(_name_count_key(anchor), 0) == 1 and name_counts.get(_name_count_key(target), 0) == 1:
         return True
     # Otherwise we need geometry for at least the non-unique sides that we may box.
     return _bbox_of(anchor) is not None or _bbox_of(target) is not None
 
 
 def _pair_unmarkable(anchor: dict, target: dict, name_counts: Dict[str, int]) -> bool:
-    da = _display_name(anchor)
-    dt = _display_name(target)
+    da = _name_count_key(anchor)
+    dt = _name_count_key(target)
     if name_counts.get(da, 0) == 1 and name_counts.get(dt, 0) == 1:
         return False
     if name_counts.get(da, 0) > 1 and _bbox_of(anchor) is None:
@@ -273,8 +352,8 @@ def _pair_unmarkable(anchor: dict, target: dict, name_counts: Dict[str, int]) ->
 
 
 def _mark_tier(anchor: dict, target: dict, name_counts: Dict[str, int]) -> int:
-    da = _display_name(anchor)
-    dt = _display_name(target)
+    da = _name_count_key(anchor)
+    dt = _name_count_key(target)
     au = name_counts.get(da, 0) == 1
     tu = name_counts.get(dt, 0) == 1
     if au and tu:
@@ -287,8 +366,8 @@ def _mark_tier(anchor: dict, target: dict, name_counts: Dict[str, int]) -> int:
 def _predict_roles_to_mark(
     rng: random.Random, cfg: SpatialRelation2DConfig, anchor: dict, target: dict, name_counts: Dict[str, int]
 ) -> Optional[Set[str]]:
-    anchor_unique = name_counts[_display_name(anchor)] == 1
-    target_unique = name_counts[_display_name(target)] == 1
+    anchor_unique = name_counts.get(_name_count_key(anchor), 0) == 1
+    target_unique = name_counts.get(_name_count_key(target), 0) == 1
 
     marked_roles: Set[str] = set()
     if anchor_unique and target_unique:

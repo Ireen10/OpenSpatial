@@ -1,6 +1,8 @@
 ## Dataset template: E2E-B (metadata(noQA) -> QA -> training)
 #
 # Use this when your input records are already MetadataV0-compatible, but do NOT contain qa_items.
+# CLI writes new shards under `{output_root}/{dataset}/{split}/metadata_noqa/` and `metadata_qa/`
+# when `pipelines` is enabled; the path below is an *input* file placeholder, not that directory layout.
 
 name: "your_dataset_name"
 
@@ -16,10 +18,14 @@ splits:
     inputs:
       - "path/to/metadata_noqa.metadata.jsonl"
 
-# Optional adapters chain (already-metadata input can still be post-processed).
+# Optional `adapters:` list (already-metadata input can still be post-processed; order = chain).
+# When 2+ entries, optional `adapter_chain:` applies (see templates e2e_a / e2e_d).
 # adapters:
 #   - file_name: "passthrough"
 #     class_name: "PassthroughAdapter"
+# adapter_chain:
+#   strict_dict: true
+#   validate_metadata_from_adapter_index: 1
 
 pipelines:
   # Input is already metadata

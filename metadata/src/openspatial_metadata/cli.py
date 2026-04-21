@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from importlib import import_module
 from inspect import signature
@@ -19,6 +20,7 @@ from .config.loader import (
     resolve_adapter,
 )
 from .config.qa_tasks import build_qa_items, load_qa_tasks_config, resolve_qa_task_params
+from .cli_phase_timing import PhaseTimer, format_timing_lines, timed_phase
 from .qa.runtime_stats import print_and_reset_spatial_relation_2d_qa_stats
 from .io.json import JsonlWriter, iter_json_file, iter_jsonl
 from .schema.metadata_v0 import MetadataV0
@@ -308,6 +310,7 @@ def _process_jsonl_file(
     ds: Any,
     split_name: str,
     dataset_path: str,
+    phase_timer: Optional[PhaseTimer] = None,
 ) -> int:
     del strict  # reserved for future per-record error policy
     records_parallelism = max(1, int(records_parallelism or 1))
@@ -340,14 +343,15 @@ def _process_jsonl_file(
     def _write_buffer(w: JsonlWriter, *, next_to_write: int) -> None:
         if not buffer:
             return
-        w.write_records(buffer)
-        w.flush()
-        if bar is None:
-            _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_to_write}")
-        _write_checkpoint_atomic(
-            ckpt_path,
-            {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0},
-        )
+        with timed_phase(phase_timer, "write_flush"):
+            w.write_records(buffer)
+            w.flush()
+            if bar is None:
+                _log(f"{ds.name}/{split_name}: {input_path.name} processed={next_to_write}")
+            _write_checkpoint_atomic(
+                ckpt_path,
+                {"input_file": str(input_path), "next_input_index": next_to_write, "errors_count": 0},
+            )
         buffer.clear()
 
     if records_parallelism <= 1:
@@ -357,11 +361,14 @@ def _process_jsonl_file(
                     continue
                 if max_records is not None and processed_this_run >= max_records:
                     break
-                out = _apply_adapter(adapter, record)
+                with timed_phase(phase_timer, "adapter"):
+                    out = _apply_adapter(adapter, record)
                 out.setdefault("aux", {})
                 out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-                out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                with timed_phase(phase_timer, "dataset_meta"):
+                    out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                with timed_phase(phase_timer, "enrich_2d"):
+                    out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
                 buffer.append(out)
                 if bar is not None:
                     bar.update(1)
@@ -388,11 +395,14 @@ def _process_jsonl_file(
 
         def _work(record: Dict, *, input_file: str, input_index: int) -> Tuple[int, Dict]:
             a = _thread_adapter()
-            out = _apply_adapter(a, record)
+            with timed_phase(phase_timer, "adapter"):
+                out = _apply_adapter(a, record)
             out.setdefault("aux", {})
             out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
-            out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-            out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+            with timed_phase(phase_timer, "dataset_meta"):
+                out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+            with timed_phase(phase_timer, "enrich_2d"):
+                out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
             return (input_index, out)
 
         submitted = 0
@@ -596,6 +606,7 @@ def _process_jsonl_file_training_pipeline(
     records_parallelism: int = 1,
     max_records: Optional[int] = None,
     tqdm_pos: Optional[int] = None,
+    phase_timer: Optional[PhaseTimer] = None,
 ) -> int:
     """
     One input jsonl file -> metadata_noqa / metadata_qa shards (``data_{part_id}.jsonl``).
@@ -655,32 +666,36 @@ def _process_jsonl_file_training_pipeline(
                         break
 
                     # Step 1: to_metadata (adapter + dataset meta + enrich)
-                    if enable_to_metadata:
-                        out = _apply_adapter(adapter, record)
-                        out.setdefault("aux", {})
-                        out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
-                        out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-                    else:
-                        out = dict(record)
+                    with timed_phase(phase_timer, "to_metadata"):
+                        if enable_to_metadata:
+                            out = _apply_adapter(adapter, record)
+                            out.setdefault("aux", {})
+                            out["aux"]["record_ref"] = {"input_file": ref.input_file, "input_index": ref.input_index}
+                            out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                            out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                        else:
+                            out = dict(record)
 
-                    md_noqa = _md_validate(out)
+                    with timed_phase(phase_timer, "validate_metadata"):
+                        md_noqa = _md_validate(out)
 
                     # Step 2: ensure_qa (metadata-native QA generator)
                     md_qa = md_noqa
                     if enable_ensure_qa and not md_noqa.qa_items:
-                        items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                        payload = _md_dump(md_noqa)
-                        payload["qa_items"] = [_qa_item_dump(it) for it in items]
-                        md_qa = _md_validate(payload)
+                        with timed_phase(phase_timer, "qa_build"):
+                            items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                            payload = _md_dump(md_noqa)
+                            payload["qa_items"] = [_qa_item_dump(it) for it in items]
+                            md_qa = _md_validate(payload)
 
                     # Always persist the noqa view (one line per input record). When qa_items is empty, skip
                     # metadata_qa and training export for that record (export still requires non-empty qa_items).
-                    w_noq.write_records([_md_dump(md_noqa)])
+                    with timed_phase(phase_timer, "persist_shards"):
+                        w_noq.write_records([_md_dump(md_noqa)])
 
-                    # Persist the "qa" view only when there is at least 1 QA item.
-                    if md_qa.qa_items:
-                        w_qa.write_records([_md_dump(md_qa)])
+                        # Persist the "qa" view only when there is at least 1 QA item.
+                        if md_qa.qa_items:
+                            w_qa.write_records([_md_dump(md_qa)])
 
                     next_idx = ref.input_index + 1
                     _write_checkpoint(next_idx)
@@ -705,24 +720,27 @@ def _process_jsonl_file_training_pipeline(
                 def _work(record: Dict, *, input_file: str, input_index: int) -> Tuple[int, Dict, Optional[Dict]]:
                     a = _thread_adapter()
                     # Step 1: to_metadata
-                    if enable_to_metadata:
-                        out = _apply_adapter(a, record)
-                        out.setdefault("aux", {})
-                        out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
-                        out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
-                        out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
-                    else:
-                        out = dict(record)
+                    with timed_phase(phase_timer, "to_metadata"):
+                        if enable_to_metadata:
+                            out = _apply_adapter(a, record)
+                            out.setdefault("aux", {})
+                            out["aux"]["record_ref"] = {"input_file": input_file, "input_index": input_index}
+                            out = _apply_dataset_meta(out, ds=ds, split_name=split_name, dataset_path=dataset_path)
+                            out = _apply_enrich_if_enabled(out, relations_2d=relations_2d)
+                        else:
+                            out = dict(record)
 
-                    md_noqa = _md_validate(out)
+                    with timed_phase(phase_timer, "validate_metadata"):
+                        md_noqa = _md_validate(out)
 
                     md_qa = md_noqa
                     qa_payload: Optional[Dict] = None
                     if enable_ensure_qa and not md_noqa.qa_items:
-                        items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
-                        payload = _md_dump(md_noqa)
-                        payload["qa_items"] = [_qa_item_dump(it) for it in items]
-                        md_qa = _md_validate(payload)
+                        with timed_phase(phase_timer, "qa_build"):
+                            items = build_qa_items(md_noqa, qa_task_name=qa_task_name, params=qa_params)
+                            payload = _md_dump(md_noqa)
+                            payload["qa_items"] = [_qa_item_dump(it) for it in items]
+                            md_qa = _md_validate(payload)
                     if md_qa.qa_items:
                         qa_payload = _md_dump(md_qa)
                     return (input_index, _md_dump(md_noqa), qa_payload)
@@ -745,9 +763,10 @@ def _process_jsonl_file_training_pipeline(
                         done[int(idx2)] = (noq_payload, qa_payload)
                     while next_to_write in done and (max_records is None or processed_this_run < max_records):
                         (noq_payload, qa_payload) = done.pop(next_to_write)
-                        w_noq.write_records([noq_payload])
-                        if qa_payload is not None:
-                            w_qa.write_records([qa_payload])
+                        with timed_phase(phase_timer, "persist_shards"):
+                            w_noq.write_records([noq_payload])
+                            if qa_payload is not None:
+                                w_qa.write_records([qa_payload])
                         next_to_write += 1
                         _write_checkpoint(next_to_write)
                         if bar is not None:
@@ -773,9 +792,10 @@ def _process_jsonl_file_training_pipeline(
                         _drain()
                     while next_to_write in done and (max_records is None or processed_this_run < max_records):
                         (noq_payload, qa_payload) = done.pop(next_to_write)
-                        w_noq.write_records([noq_payload])
-                        if qa_payload is not None:
-                            w_qa.write_records([qa_payload])
+                        with timed_phase(phase_timer, "persist_shards"):
+                            w_noq.write_records([noq_payload])
+                            if qa_payload is not None:
+                                w_qa.write_records([qa_payload])
                         next_to_write += 1
                         _write_checkpoint(next_to_write)
                         if bar is not None:
@@ -805,12 +825,14 @@ def _process_jsonl_files_parallel(
     ds: Any,
     split_name: str,
     dataset_path: str,
-) -> None:
+    phase_timer: Optional[PhaseTimer] = None,
+) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     ex = ThreadPoolExecutor(max_workers=effective)
     futures: Dict[Any, Tuple[Path, int]] = {}
     slots = list(range(max(1, effective)))
     pending = list(enumerate(files))
+    total_records = 0
     try:
         # Submit up to `effective` tasks, each holding a unique progress slot.
         while pending and slots:
@@ -833,6 +855,7 @@ def _process_jsonl_files_parallel(
                 ds=ds,
                 split_name=split_name,
                 dataset_path=dataset_path,
+                phase_timer=phase_timer,
             )
             futures[fut] = (ip, slot)
 
@@ -840,7 +863,8 @@ def _process_jsonl_files_parallel(
             for fut in as_completed(list(futures.keys())):
                 ip, slot = futures.pop(fut)
                 try:
-                    fut.result()
+                    n_done = int(fut.result())
+                    total_records += n_done
                     _log(f"{ds.name}/{split_name}: done {ip.name}")
                 except Exception as exc:  # noqa: BLE001 — surface to user under strict
                     print(f"[openspatial-metadata] JSONL worker failed: {ip}\n{exc!r}", file=sys.stderr)
@@ -867,11 +891,13 @@ def _process_jsonl_files_parallel(
                         ds=ds,
                         split_name=split_name,
                         dataset_path=dataset_path,
+                        phase_timer=phase_timer,
                     )
                     futures[nfut] = (nip, slot)
                 break
     finally:
         ex.shutdown(wait=True, cancel_futures=False)
+    return total_records
 
 
 def _read_single_json_file_record(
@@ -1069,11 +1095,13 @@ def _process_jsonl_files_training_parallel(
     qa_task_overrides: Optional[Dict[str, Any]],
     enable_to_metadata: bool,
     enable_ensure_qa: bool,
-) -> None:
+    phase_timer: Optional[PhaseTimer] = None,
+) -> int:
     ex = ThreadPoolExecutor(max_workers=effective)
     futures: Dict[Any, Tuple[Path, int, int]] = {}
     slots = list(range(max(1, effective)))
     pending = list(enumerate(files))
+    total_records = 0
     try:
         while pending and slots:
             slot = slots.pop(0)
@@ -1097,6 +1125,7 @@ def _process_jsonl_files_training_parallel(
                 enable_ensure_qa=enable_ensure_qa,
                 records_parallelism=records_parallelism,
                 tqdm_pos=slot,
+                phase_timer=phase_timer,
             )
             futures[fut] = (ip, part_id, slot)
 
@@ -1104,7 +1133,8 @@ def _process_jsonl_files_training_parallel(
             for fut in as_completed(list(futures.keys())):
                 ip, part_id, slot = futures.pop(fut)
                 try:
-                    fut.result()
+                    n_done = int(fut.result())
+                    total_records += n_done
                     _log(f"{ds.name}/{split_name}: done part={part_id} {ip.name}")
                 except Exception as exc:  # noqa: BLE001
                     print(
@@ -1136,11 +1166,13 @@ def _process_jsonl_files_training_parallel(
                         enable_ensure_qa=enable_ensure_qa,
                         records_parallelism=records_parallelism,
                         tqdm_pos=slot2,
+                        phase_timer=phase_timer,
                     )
                     futures[nfut] = (ip2, part_id2, slot2)
                 break
     finally:
         ex.shutdown(wait=True, cancel_futures=False)
+    return total_records
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1174,12 +1206,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="If >0, process at most N records across all discovered datasets/splits (forces sequential execution).",
     )
     p.add_argument("--progress", choices=["tqdm", "log", "none"], default="tqdm", help="Progress display mode.")
+    p.add_argument(
+        "--timing",
+        action="store_true",
+        help="Print end-to-end and per-split wall time; for jsonl, also print per-phase CPU timings (stderr).",
+    )
     return p
 
 
 def main(argv=None) -> None:
     global _PROGRESS_MODE, _TQDM
     args = build_parser().parse_args(argv)
+    main_t0 = time.perf_counter()
+    use_timing = bool(getattr(args, "timing", False))
     _PROGRESS_MODE = args.progress
     if _PROGRESS_MODE == "tqdm":
         try:
@@ -1249,6 +1288,9 @@ def main(argv=None) -> None:
                 f"start {ds.name}/{split.name}: type={split.input_type} files={len(files)} workers={eff} rec_par={rec_par} "
                 f"batch_size={g.batch_size} enrich2d={rel2d} out={out_dir}"
             )
+            split_t0 = time.perf_counter()
+            split_phase_timer = PhaseTimer() if use_timing else None
+            n_split_recs = 0
 
             if split.input_type == "jsonl":
                 if pipe and bool(pipe.get("ensure_qa", False) or pipe.get("export_training", False)):
@@ -1265,7 +1307,7 @@ def main(argv=None) -> None:
                         f"train_out={training_root} training_rows_per_part={rows_pt} training_row_align={row_al}"
                     )
                     if eff > 1:
-                        _process_jsonl_files_training_parallel(
+                        n_split_recs = _process_jsonl_files_training_parallel(
                             files,
                             effective=eff,
                             records_parallelism=rec_par,
@@ -1282,6 +1324,7 @@ def main(argv=None) -> None:
                             qa_task_overrides=qa_task_overrides,
                             enable_to_metadata=enable_to_metadata,
                             enable_ensure_qa=enable_ensure_qa,
+                            phase_timer=split_phase_timer,
                         )
                     else:
                         for part_id, ip in enumerate(files):
@@ -1307,25 +1350,28 @@ def main(argv=None) -> None:
                                 records_parallelism=rec_par,
                                 max_records=remaining,
                                 tqdm_pos=0,
+                                phase_timer=split_phase_timer,
                             )
                             _log(f"{ds.name}/{split.name}: done {ip.name}")
+                            n_split_recs += int(n_done)
                             if remaining is not None:
                                 remaining -= int(n_done)
                                 if remaining_total is not None:
                                     remaining_total = remaining
-                    _finalize_training_export_for_split(
-                        enable_export=enable_export,
-                        output_root=output_root,
-                        training_root=training_root,
-                        ds=ds,
-                        split_name=split.name,
-                        dataset_path=cfg_path,
-                        rows_per_part=rows_pt,
-                        row_align=row_al,
-                    )
+                    with timed_phase(split_phase_timer, "export_training_bundles"):
+                        _finalize_training_export_for_split(
+                            enable_export=enable_export,
+                            output_root=output_root,
+                            training_root=training_root,
+                            ds=ds,
+                            split_name=split.name,
+                            dataset_path=cfg_path,
+                            rows_per_part=rows_pt,
+                            row_align=row_al,
+                        )
                 else:
                     if eff > 1:
-                        _process_jsonl_files_parallel(
+                        n_split_recs = _process_jsonl_files_parallel(
                             files,
                             out_dir,
                             effective=eff,
@@ -1340,6 +1386,7 @@ def main(argv=None) -> None:
                             ds=ds,
                             split_name=split.name,
                             dataset_path=cfg_path,
+                            phase_timer=split_phase_timer,
                         )
                     else:
                         for part_id, ip in enumerate(files):
@@ -1362,8 +1409,10 @@ def main(argv=None) -> None:
                                 ds=ds,
                                 split_name=split.name,
                                 dataset_path=cfg_path,
+                                phase_timer=split_phase_timer,
                             )
                             _log(f"{ds.name}/{split.name}: done {ip.name}")
+                            n_split_recs += int(n_done)
                             if remaining is not None:
                                 remaining -= int(n_done)
                                 if remaining_total is not None:
@@ -1405,6 +1454,25 @@ def main(argv=None) -> None:
                     )
             else:
                 raise ValueError(f"Unknown input_type: {split.input_type}")
+
+            if use_timing:
+                split_wall = time.perf_counter() - split_t0
+                phase_for_report = split_phase_timer if split.input_type == "jsonl" else None
+                rec_arg = n_split_recs if n_split_recs > 0 else None
+                for line in format_timing_lines(
+                    label=f"{ds.name}/{split.name}",
+                    wall_s=split_wall,
+                    phase_timer=phase_for_report,
+                    n_records=rec_arg,
+                ):
+                    print(line, file=sys.stderr, flush=True)
+
+    if use_timing:
+        print(
+            f"[openspatial-metadata][timing] run_total_wall_s={time.perf_counter() - main_t0:.3f}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
