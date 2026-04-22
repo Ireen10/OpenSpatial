@@ -34,6 +34,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument("--host", default="127.0.0.1", help="Bind address.")
     p.add_argument("--port", type=int, default=8765, help="Bind port.")
+    p.add_argument("--verbose", action="store_true", help="Enable per-request server logs in console.")
     args = p.parse_args(argv)
 
     g = load_global_config(args.global_config)
@@ -56,6 +57,7 @@ def main(argv: list[str] | None = None) -> None:
         default_scale=int(g.scale),
         qa_config_path=str(qa_cfg) if qa_cfg else None,
         training_output_root=training_root,
+        verbose=bool(args.verbose),
     )
     print(
         f"[openspatial-metadata-viz] serving http://{args.host}:{args.port}/  "

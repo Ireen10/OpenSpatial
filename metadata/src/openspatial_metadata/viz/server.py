@@ -57,11 +57,43 @@ def _resolved_metadata_root(default_output_root: Path, ds: DatasetConfig) -> Pat
     return default_output_root.resolve()
 
 
+def _files_for_dataset(entries: list[dict[str, Any]], dataset_name: str) -> list[dict[str, Any]]:
+    """
+    Select metadata files for one dataset from enumerated entries.
+
+    Supports both directory layouts:
+    - Global-root layout: ``{root}/{dataset}/{split}/...``
+    - Dataset-root layout: ``{root}/{split}/...`` where ``root`` is already dataset-specific
+    """
+    matched = [f for f in entries if f.get("dataset_dir") == dataset_name]
+    if matched:
+        return matched
+
+    out: list[dict[str, Any]] = []
+    for f in entries:
+        rel = str(f.get("rel_path") or "").replace("\\", "/")
+        parts = [p for p in rel.split("/") if p]
+        if not parts:
+            continue
+        split = parts[0]
+        stage = "flat"
+        if len(parts) >= 2 and parts[1] in ("metadata_noqa", "metadata_qa"):
+            stage = parts[1]
+        row = dict(f)
+        row["dataset_dir"] = dataset_name
+        row["split"] = split
+        row["stage"] = stage
+        out.append(row)
+    return out
+
+
 class VizRequestHandler(BaseHTTPRequestHandler):
     server_version = "OpenSpatialMetadataViz/0.1"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Quieter default
+        # Keep quiet by default; enable standard request logs with --verbose.
+        if bool(getattr(self.server, "verbose", False)):  # type: ignore[attr-defined]
+            super().log_message(fmt, *args)
         return
 
     def do_GET(self) -> None:  # noqa: N802
@@ -93,7 +125,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                     key_m = str(mr)
                     if key_m not in cache_meta:
                         cache_meta[key_m] = enumerate_metadata_jsonl(mr)
-                    files.extend([f for f in cache_meta[key_m] if f.get("dataset_dir") == name])
+                    files.extend(_files_for_dataset(cache_meta[key_m], name))
 
                     tr = resolved_training_root(dataset_index, name)
                     if tr is None and global_training_root is not None:
@@ -329,6 +361,7 @@ def create_server(
     default_scale: int,
     qa_config_path: str | None = None,
     training_output_root: Path | None = None,
+    verbose: bool = False,
 ) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), VizRequestHandler)
     httpd.output_root = output_root.resolve()  # type: ignore[attr-defined]
@@ -336,6 +369,7 @@ def create_server(
     httpd.default_scale = default_scale  # type: ignore[attr-defined]
     httpd.qa_config_path = qa_config_path  # type: ignore[attr-defined]
     httpd.training_output_root = training_output_root.resolve() if training_output_root else None  # type: ignore[attr-defined]
+    httpd.verbose = bool(verbose)  # type: ignore[attr-defined]
     return httpd
 
 

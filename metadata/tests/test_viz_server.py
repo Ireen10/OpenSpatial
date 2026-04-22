@@ -161,3 +161,69 @@ def test_viz_training_lines_with_optional_count(tmp_path: Path) -> None:
     assert r1["line_count"] == 3
 
     httpd.shutdown()
+
+
+def test_viz_server_tree_with_dataset_specific_metadata_root(tmp_path: Path) -> None:
+    """
+    Dataset may set metadata_output_root to a dataset-specific directory.
+    In this layout files are under {root}/{split}/..., not {root}/{dataset}/{split}/...
+    """
+    ds_name = "demo_ds_specific_root"
+    split_name = "train"
+    ds_root = tmp_path / "ds_specific_root"
+    meta_dir = ds_root / split_name / "metadata_noqa"
+    meta_dir.mkdir(parents=True)
+    rec = {
+        "dataset": {"name": ds_name, "version": "v0", "split": split_name},
+        "sample": {
+            "sample_id": "s-1",
+            "view_id": 0,
+            "image": {"path": "dummy.jpg", "width": 4, "height": 4, "coord_space": "norm_0_999", "coord_scale": 1000},
+        },
+        "camera": None,
+        "objects": [],
+        "queries": [],
+        "relations": [],
+        "aux": {},
+    }
+    (meta_dir / "data_000000.jsonl").write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    cfg_dir = tmp_path / "configs" / "datasets" / ds_name
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "dataset.yaml").write_text(
+        "\n".join(
+            [
+                f"name: {ds_name}",
+                f"metadata_output_root: {ds_root.as_posix()}",
+                "splits:",
+                f"  - name: {split_name}",
+                "    input_type: jsonl",
+                "    inputs: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    idx = build_dataset_index(tmp_path / "configs" / "datasets")
+    httpd = create_server("127.0.0.1", 0, output_root=tmp_path / "unused_root", dataset_index=idx, default_scale=1000)
+    real_port = httpd.server_address[1]
+    t = threading.Thread(target=serve_forever, args=(httpd,), daemon=True)
+    t.start()
+    base = f"http://127.0.0.1:{real_port}"
+
+    def get_json(url: str):
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    tree = get_json(f"{base}/api/tree")
+    assert len(tree["files"]) == 1
+    f0 = tree["files"][0]
+    assert f0["dataset_dir"] == ds_name
+    assert f0["split"] == split_name
+    assert f0["stage"] == "metadata_noqa"
+
+    rel = f0["rel_path"]
+    one = get_json(f"{base}/api/record?dataset={quote(ds_name)}&path={quote(rel)}&line=0")
+    assert one["record"]["sample"]["sample_id"] == "s-1"
+
+    httpd.shutdown()
