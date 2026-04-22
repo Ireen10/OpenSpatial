@@ -394,18 +394,19 @@
       tr.records = j.records || [];
       tr.line_count = Number.isFinite(j.line_count) ? Number(j.line_count) : null;
       tr.idx = 0;
-      $("line-input").value = String(tr.offset);
-      const hasMore = !!j.has_more;
-      let status = `offset ${tr.offset} · ${tr.records.length} recs`;
-      status += hasMore ? " · more" : " · end";
-      if (tr.line_count != null) status += ` · total ${tr.line_count}`;
-      $("line-status").textContent = status;
+      tr.has_more = !!j.has_more;
       $("hdr-meta").textContent = `${tr.dataset} · ${tr.split} · data_${String(tr.part).padStart(6,"0")}`;
       renderTraining();
     }
 
     function renderTraining() {
       const tr = state.training;
+      const absLine = Math.max(0, Number(tr.offset || 0) + Number(tr.idx || 0));
+      $("line-input").value = String(absLine);
+      let status = `line ${absLine + 1} · offset ${tr.offset} · ${tr.records.length} recs`;
+      status += tr.has_more ? " · more" : " · end";
+      if (tr.line_count != null) status += ` · total ${tr.line_count}`;
+      $("line-status").textContent = status;
       const row = (tr.records || [])[tr.idx || 0];
       if (!row) {
         $("view").removeAttribute("src");
