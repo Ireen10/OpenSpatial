@@ -75,3 +75,21 @@ def test_resolved_image_root_relative_to_yaml(tmp_path: Path) -> None:
     idx = build_dataset_index(tmp_path)
     r = resolved_image_root(idx, "rel_ds")
     assert r == images.resolve()
+
+
+def test_build_dataset_index_single_yaml_file(tmp_path: Path) -> None:
+    cfg = tmp_path / "single_ds.yaml"
+    cfg.write_text(
+        textwrap.dedent(
+            """
+            name: single_ds
+            splits:
+              - name: train
+                input_type: jsonl
+                inputs: []
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    idx = build_dataset_index(cfg)
+    assert set(idx.keys()) == {"single_ds"}

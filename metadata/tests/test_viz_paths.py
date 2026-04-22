@@ -6,6 +6,7 @@ from pathlib import Path
 from openspatial_metadata.viz.paths import (
     count_lines_jsonl,
     enumerate_metadata_jsonl,
+    enumerate_training_parts_for_dataset,
     find_sample_line,
     read_line_jsonl,
     safe_file_under_root,
@@ -58,3 +59,23 @@ def test_count_lines_jsonl_updates_after_file_change(tmp_path: Path) -> None:
     assert count_lines_jsonl(p) == 2
     p.write_text("{}\n{}\n{}\n", encoding="utf-8")
     assert count_lines_jsonl(p) == 3
+
+
+def test_enumerate_training_parts_for_dataset_only_target(tmp_path: Path) -> None:
+    root = tmp_path / "training_out"
+    # target dataset
+    (root / "ds_a" / "train" / "jsonl").mkdir(parents=True)
+    (root / "ds_a" / "train" / "images").mkdir(parents=True)
+    (root / "ds_a" / "train" / "jsonl" / "data_000000.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "ds_a" / "train" / "images" / "data_000000.tar").write_bytes(b"x")
+    (root / "ds_a" / "train" / "images" / "data_000000_tarinfo.json").write_text("{}", encoding="utf-8")
+    # unrelated dataset
+    (root / "ds_b" / "train" / "jsonl").mkdir(parents=True)
+    (root / "ds_b" / "train" / "images").mkdir(parents=True)
+    (root / "ds_b" / "train" / "jsonl" / "data_000000.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "ds_b" / "train" / "images" / "data_000000.tar").write_bytes(b"x")
+    (root / "ds_b" / "train" / "images" / "data_000000_tarinfo.json").write_text("{}", encoding="utf-8")
+
+    parts = enumerate_training_parts_for_dataset(root, "ds_a")
+    assert len(parts) == 1
+    assert parts[0]["dataset"] == "ds_a"

@@ -12,7 +12,7 @@ from ..config.schema import DatasetConfig
 from .paths import (
     count_lines_jsonl,
     enumerate_metadata_jsonl,
-    enumerate_training_parts,
+    enumerate_training_parts_for_dataset,
     find_sample_line,
     is_under_root,
     read_line_jsonl,
@@ -118,7 +118,6 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                 files = []
                 cache_meta: Dict[str, list] = {}
                 parts = []
-                cache_train: Dict[str, list] = {}
                 for name in sorted(dataset_index.keys()):
                     ent = dataset_index[name]
                     mr = _resolved_metadata_root(output_root, ent.dataset)
@@ -132,10 +131,7 @@ class VizRequestHandler(BaseHTTPRequestHandler):
                         tr = global_training_root
                     if tr is None:
                         continue
-                    key_t = str(tr)
-                    if key_t not in cache_train:
-                        cache_train[key_t] = enumerate_training_parts(tr)
-                    parts.extend([p for p in cache_train[key_t] if p.get("dataset") == name])
+                    parts.extend(enumerate_training_parts_for_dataset(tr, name))
                 _send_json(
                     self,
                     {

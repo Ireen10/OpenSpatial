@@ -45,6 +45,26 @@ def main(argv: list[str] | None = None) -> None:
 
     config_root = Path(args.config_root)
     idx = build_dataset_index(config_root)
+    if not idx:
+        print(
+            f"[openspatial-metadata-viz] error: no dataset config discovered from --config-root={config_root}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if args.verbose:
+        print(f"[openspatial-metadata-viz] loaded datasets ({len(idx)}):", file=sys.stderr)
+        for name, ent in sorted(idx.items()):
+            raw_m = getattr(ent.dataset, "metadata_output_root", None)
+            if isinstance(raw_m, str) and raw_m:
+                mroot = Path(raw_m).expanduser().resolve()
+                source = "dataset.metadata_output_root"
+            else:
+                mroot = output_root
+                source = "global/--output-root"
+            print(
+                f"  - {name} | config={ent.config_path} | metadata_root={mroot} ({source})",
+                file=sys.stderr,
+            )
 
     qa_cfg = args.qa_config or getattr(g, "qa_config", None)
     tor = getattr(g, "training_output_root", None)

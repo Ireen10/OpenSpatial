@@ -60,7 +60,7 @@ def enumerate_metadata_jsonl(output_root: Path) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         dirnames[:] = [d for d in dirnames if d != ".checkpoints"]
-        rel_dir = Path(dirpath).resolve().relative_to(root)
+        rel_dir = Path(dirpath).relative_to(root)
         parts = rel_dir.parts
         # Require at least ``{output_root}/{dataset}/{split}/``.
         if len(parts) < 2:
@@ -75,7 +75,12 @@ def enumerate_metadata_jsonl(output_root: Path) -> List[Dict[str, Any]]:
             if not _is_metadata_stage_jsonl_filename(fn):
                 continue
             full = Path(dirpath) / fn
-            rel = full.resolve().relative_to(root)
+            try:
+                rel = full.relative_to(root)
+            except ValueError:
+                # Defensive: if a symlinked file resolves outside root, skip it
+                # instead of failing the whole /api/tree request.
+                continue
             out.append(
                 {
                     "path": str(full),
@@ -120,16 +125,69 @@ def enumerate_training_parts(training_root: Path) -> List[Dict[str, Any]]:
                 tip = images_dir / f"data_{pid:06d}_tarinfo.json"
                 if not tp.is_file() or not tip.is_file():
                     continue
+                try:
+                    jsonl_rel = str(jp.relative_to(root)).replace("\\", "/")
+                    tar_rel = str(tp.relative_to(root)).replace("\\", "/")
+                    tarinfo_rel = str(tip.relative_to(root)).replace("\\", "/")
+                except ValueError:
+                    # Defensive against symlink/mount edge cases.
+                    continue
                 out.append(
                     {
                         "dataset": dataset_dir.name,
                         "split": split_dir.name,
                         "part_id": pid,
-                        "jsonl_rel": str(jp.resolve().relative_to(root)).replace("\\", "/"),
-                        "tar_rel": str(tp.resolve().relative_to(root)).replace("\\", "/"),
-                        "tarinfo_rel": str(tip.resolve().relative_to(root)).replace("\\", "/"),
+                        "jsonl_rel": jsonl_rel,
+                        "tar_rel": tar_rel,
+                        "tarinfo_rel": tarinfo_rel,
                     }
                 )
+    out.sort(key=lambda x: (x["dataset"], x["split"], x["part_id"]))
+    return out
+
+
+def enumerate_training_parts_for_dataset(training_root: Path, dataset_name: str) -> List[Dict[str, Any]]:
+    """
+    Enumerate training parts for a single dataset only:
+      {training_root}/{dataset}/{split}/{images,jsonl}/data_{id:06d}.*
+    """
+    root = training_root.resolve()
+    if not root.is_dir():
+        return []
+    ds_dir = root / dataset_name
+    if not ds_dir.is_dir():
+        return []
+    out: List[Dict[str, Any]] = []
+    for split_dir in sorted([p for p in ds_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]):
+        images_dir = split_dir / "images"
+        jsonl_dir = split_dir / "jsonl"
+        if not images_dir.is_dir() or not jsonl_dir.is_dir():
+            continue
+        for jp in sorted(jsonl_dir.glob("data_*.jsonl")):
+            m = re.match(r"^data_(\d{6})\.jsonl$", jp.name)
+            if not m:
+                continue
+            pid = int(m.group(1))
+            tp = images_dir / f"data_{pid:06d}.tar"
+            tip = images_dir / f"data_{pid:06d}_tarinfo.json"
+            if not tp.is_file() or not tip.is_file():
+                continue
+            try:
+                jsonl_rel = str(jp.relative_to(root)).replace("\\", "/")
+                tar_rel = str(tp.relative_to(root)).replace("\\", "/")
+                tarinfo_rel = str(tip.relative_to(root)).replace("\\", "/")
+            except ValueError:
+                continue
+            out.append(
+                {
+                    "dataset": dataset_name,
+                    "split": split_dir.name,
+                    "part_id": pid,
+                    "jsonl_rel": jsonl_rel,
+                    "tar_rel": tar_rel,
+                    "tarinfo_rel": tarinfo_rel,
+                }
+            )
     out.sort(key=lambda x: (x["dataset"], x["split"], x["part_id"]))
     return out
 
